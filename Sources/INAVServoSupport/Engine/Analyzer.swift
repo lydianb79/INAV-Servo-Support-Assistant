@@ -67,6 +67,8 @@ struct TimerOption: Identifiable, Hashable {
     /// Motor outputs on the same timer – they are disabled when this option is used
     /// (inav cannot run motors and servos on one timer).
     var disablesMotors: [TimerEntry] = []
+    /// DMA option (last DEF_TIM argument) for a new entry – chosen to avoid streams already in use.
+    var dmaVariant: Int = 0
 
     var id: String { channel.id }
     var takesMotors: Bool { !disablesMotors.isEmpty }
@@ -153,6 +155,10 @@ struct TargetAnalysis {
     let padPins: [String: String]       // pin -> "UART2 TX" / "LED strip"
     let ledInDefaultFeatures: Bool
     let motorOutputs: [TimerEntry]      // motor-capable outputs in inav's order: index 0 = motor 1
+    let padLabels: [String: String]     // pin -> board pad name (S1, TX6, LED …)
+    let dmaReport: DMAReport
+
+    func padLabel(_ pin: String) -> String? { padLabels[pin] }
 
     func motorNumber(_ e: TimerEntry) -> Int? {
         motorOutputs.firstIndex { $0.line == e.line }.map { $0 + 1 }
@@ -276,7 +282,8 @@ enum Analyzer {
 
         return TargetAnalysis(target: target, chip: chip, groups: groups, otherPinUsers: others,
                               softSerialPins: softPins, padPins: padPins, ledInDefaultFeatures: ledDefault,
-                              motorOutputs: motors)
+                              motorOutputs: motors, padLabels: PadLabels.labels(for: target),
+                              dmaReport: DMACheck.report(target: target, chip: chip))
     }
 
     private static func analyzePin(group: PadKind, role: String, pin: String, _ c: Context) -> PinAnalysis {
@@ -340,6 +347,9 @@ enum Analyzer {
                 issues.append(Issue(severity: .warning, text: "\(pin) is also a softserial pin."))
             }
             options[i].issues = issues
+            if options[i].kind == .newEntry {
+                options[i].dmaVariant = DMACheck.freeVariant(for: tc, target: c.target, chip: c.chip)
+            }
         }
 
         let usedTimers = Set(c.active.map { $0.timer })

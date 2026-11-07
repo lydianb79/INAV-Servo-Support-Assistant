@@ -79,6 +79,13 @@ struct TimerChannel: Hashable, Comparable, CustomStringConvertible {
     }
 }
 
+struct DMAStreamRef: Hashable {
+    let dma: Int
+    let stream: Int
+    let channel: Int
+    var streamKey: String { "DMA\(dma) Stream \(stream)" }
+}
+
 /// A possible timer channel on a pin according to datasheet / inav tables.
 struct PinTimerCapability: Hashable {
     let channel: TimerChannel
@@ -108,6 +115,10 @@ final class ChipDatabase {
     private(set) var btchAlias: [String: String] = [:]        // TIM1_CH1N -> TIM1_CH1
     private(set) var timers: Set<String> = []
     private(set) var embedded: [String: [TimerChannel]] = [:]
+    /// DMA options per base timer channel (index = dmavar in DEF_TIM). Empty list = no DMA.
+    private(set) var dmaOptions: [String: [DMAStreamRef]] = [:]
+    /// H7 / AT32 route DMA through a DMAMUX: streams are assigned at runtime, no fixed clashes.
+    var hasFixedDMA: Bool { mcu.family == .f4 || mcu.family == .f7 }
 
     var sourceDescription: String {
         switch mcu.family {
@@ -134,8 +145,11 @@ final class ChipDatabase {
         for m in header.regexMatches(#"^\s*#define\s+DEF_TIM_AF__(P[A-K][0-9]+)__TCH_(\w+?_CH[0-9]N?)\s+D\(\s*([0-9]+)\s*,\s*([0-9]+)\s*\)"#, multiline: true) {
             inavAF[m[1], default: [:]][m[2]] = Int(m[3]) ?? 0
         }
-        for m in header.regexMatches(#"^\s*#define\s+DEF_TIM_DMA__BTCH_(\w+_CH[0-9]N?)\b"#, multiline: true) {
+        for m in header.regexMatches(#"^\s*#define\s+DEF_TIM_DMA__BTCH_(\w+_(?:CH[0-9]N?|UP))\b(.*)$"#, multiline: true) {
             dmaChannels.insert(m[1])
+            dmaOptions[m[1]] = m[2].regexMatches(#"D\(\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)\s*\)"#).map {
+                DMAStreamRef(dma: Int($0[1]) ?? 0, stream: Int($0[2]) ?? 0, channel: Int($0[3]) ?? 0)
+            }
         }
         let timerDef = try read("timer_def.h")
         for m in timerDef.regexMatches(#"^\s*#define\s+BTCH_(\w+_CH[0-9]N)\s+BTCH_(\w+_CH[0-9])\b"#, multiline: true) {

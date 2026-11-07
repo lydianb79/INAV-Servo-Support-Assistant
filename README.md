@@ -79,6 +79,26 @@ The *After flashing* box (and the CLI tab in *Review & Apply*) generates paste-r
 servo pads in shared mode, `serial <id> <mask>` for the receiver / GPS / VTX ports from *Remaining serial ports*,
 `set receiver_type` / `serialrx_provider`, and `save`.
 
+## More tools
+
+* **New target copy** – in *Review & Apply* choose *Apply to: New target copy* (default name `<TARGET>_SERVO`).
+  A new folder `src/main/target/<NAME>` is created with the changes; the original target stays untouched, so
+  `git pull` never conflicts. Variants are renamed (`MATEKF405OSD` → `MATEKF405OSD_SERVO`) and `target.h` maps
+  them back to the original macros, so every `#ifdef` of the board keeps working. Build it with `make <NAME>`.
+* **Export / apply .patch** – *Export .patch…* (review screen or *More* menu) saves the change set as a
+  git-compatible patch; *File → Apply Patch…* runs `git apply --check` + `git apply` in the current inav folder,
+  e.g. after updating to a new inav version.
+* **Commit to git branch** – *File → Commit Target to Git Branch…* creates a branch (default `servo/<TARGET>`),
+  switches to it and commits the target folder (backups excluded).
+* **Flash** – after a successful *Test Build* the log offers *Reveal .hex* and *Flash via DFU…*: the hex is
+  converted with the toolchain's `arm-none-eabi-objcopy` and written with `dfu-util` (`brew install dfu-util`),
+  optionally with full chip erase. Put the board into DFU mode (hold BOOT while plugging in USB) first.
+* **Board pad names** – S1, M5, TX6, LED … are read from the comments in `target.c` / `target.h` and shown on
+  the pin map, in the pad rows and on the motor chips.
+* **DMA check** – on STM32F4/F7 the DMA streams of DShot motors (per channel, or per timer with
+  `USE_DSHOT_DMAR`), the LED strip and the ADC are listed with any shared streams already present in the target.
+  Servo outputs use no DMA; new servo entries get a DMA option that avoids used streams. H7/AT32 use a DMAMUX.
+
 ## What gets changed
 
 `target.c` – new entries are appended at the end of `timerHardware[]` so existing output

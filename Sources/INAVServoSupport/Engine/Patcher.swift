@@ -71,7 +71,7 @@ enum Patcher {
                 let tc = choice.option.channel
                 let usage = (isLED && choice.mode == .shared) ? "TIM_USE_LED | TIM_USE_SERVO" : "TIM_USE_SERVO"
                 let call = "DEF_TIM(\(tc.timer), \(tc.channel), \(choice.pin.pin),"
-                let entry = "    " + call.padded(to: 26) + " \(usage), 0, 0), // \(label) -> servo (\(tag))"
+                let entry = "    " + call.padded(to: 26) + " \(usage), 0, \(choice.option.dmaVariant)), // \(label) -> servo (\(tag))"
                 newEntries.append(entry)
                 addedOutputs += 1
                 changes.append("target.c: new DEF_TIM(\(tc.timer), \(tc.channel), \(choice.pin.pin), \(usage)) for \(label).")

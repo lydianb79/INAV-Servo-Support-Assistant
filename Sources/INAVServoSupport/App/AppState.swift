@@ -23,6 +23,12 @@ final class AppState: ObservableObject {
     @Published var pinOption: [String: String] = [:]
     @Published var padMode: [String: UartMode] = [:]   // keyed by PadGroup.id
     @Published var portRefs: [PortReference] = []
+    // Apply target: modify in place or create a copy as new target
+    @Published var applyAsCopy = false
+    @Published var copyName = ""
+    // Last successful build output
+    @Published var lastHex: URL?
+    @Published var lastBuildTarget = ""
     @Published var refAction: [Int: ReferenceAction] = [:]   // UART number -> action chosen by the user
     @Published var hoveredPin: String?
 
@@ -273,6 +279,8 @@ final class AppState: ObservableObject {
         pinOption = [:]
         padMode = [:]
         portRefs = []
+        applyAsCopy = false
+        if let name = selectedTargetName { copyName = name + "_SERVO" }
         refAction = [:]
         guard let root = inavRoot, let name = selectedTargetName else { return }
         do {
@@ -505,9 +513,22 @@ final class AppState: ObservableObject {
         return [t.cURL, t.hURL, t.configURL].contains { fm.fileExists(atPath: backupURL(for: $0).path) }
     }
 
+    var copyNameProblem: String? {
+        guard applyAsCopy else { return nil }
+        if !TargetCopy.isValidName(copyName) { return "Use A–Z, 0–9 and _ (3–40 characters, starting with a letter)." }
+        if let root = inavRoot, FileManager.default.fileExists(atPath: TargetParser.targetsDirectory(root).appendingPathComponent(copyName).path) {
+            return "A target named \(copyName) already exists."
+        }
+        return nil
+    }
+
     func apply() {
         guard case .success(let plan) = self.plan, plan.hasChanges else {
             alertMessage = "Nothing to apply."
+            return
+        }
+        if applyAsCopy {
+            applyCopy(plan)
             return
         }
         let t = plan.target
@@ -527,6 +548,205 @@ final class AppState: ObservableObject {
             loadSelectedTarget()
         } catch {
             alertMessage = "Writing files failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func applyCopy(_ plan: PatchPlan) {
+        guard let root = inavRoot else { return }
+        if let problem = copyNameProblem { alertMessage = problem; return }
+        do {
+            let dir = try TargetCopy.create(root: root, target: plan.target, plan: plan, newName: copyName)
+            let name = dir.lastPathComponent
+            showDiffSheet = false
+            targets = TargetParser.listTargets(root: root)
+            selectedTargetName = name
+            statusMessage = "Created new target \(name) – the original \(plan.target.name) is unchanged. Build it with: make \(name)"
+        } catch {
+            alertMessage = "Creating the target copy failed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Patch export / import, git branch
+
+    /// The current change set as a git-compatible patch (paths relative to the inav root).
+    func patchText() -> String? {
+        guard case .success(let plan) = self.plan, let root = inavRoot else { return nil }
+        let t = plan.target
+        let rel = "src/main/target/"
+        var out = "# INAV Servo Support Assistant – servo pads for \(t.name)\n# apply in the inav folder with:  git apply <this file>\n"
+        if applyAsCopy {
+            guard copyNameProblem == nil else { return nil }
+            for (name, content) in TargetCopy.files(target: t, plan: plan, newName: copyName) {
+                out += UnifiedDiff.file(path: rel + copyName + "/" + name, old: nil, new: content)
+            }
+        } else {
+            out += UnifiedDiff.file(path: rel + t.name + "/target.c", old: t.cText, new: plan.newC)
+            out += UnifiedDiff.file(path: rel + t.name + "/target.h", old: t.hText, new: plan.newH)
+            if let cfg = t.configText, let newCfg = plan.newConfig {
+                out += UnifiedDiff.file(path: rel + t.name + "/config.c", old: cfg, new: newCfg)
+            }
+        }
+        _ = root
+        return out
+    }
+
+    func exportPatch() {
+        guard let text = patchText() else { alertMessage = "Nothing to export (check the selection and the copy name)."; return }
+        let panel = NSSavePanel()
+        panel.title = "Export servo changes as patch"
+        panel.nameFieldStringValue = (applyAsCopy ? copyName : (analysis?.target.name ?? "target")) + "-servo.patch"
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try text.write(to: url, atomically: true, encoding: .utf8)
+                statusMessage = "Patch saved to \(url.path). Re-apply it in any inav checkout with File → Apply Patch…"
+            } catch {
+                alertMessage = "Saving the patch failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func importPatch() {
+        guard let root = inavRoot else { alertMessage = "Open an inav source folder first."; return }
+        let panel = NSOpenPanel()
+        panel.title = "Apply a servo patch to \(root.lastPathComponent)"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let cmd = "cd \(shellQuote(root.path)) && git apply --check --verbose \(shellQuote(url.path)) && git apply --verbose \(shellQuote(url.path))"
+        startJob(title: "Apply patch \(url.lastPathComponent)")
+        log += "$ \(cmd)\n"
+        runner.runShell(cmd, in: root, output: { [weak self] in self?.log += $0 }) { [weak self] status in
+            guard let self = self else { return }
+            self.jobRunning = false
+            if status == 0 {
+                self.log += "\n✅ Patch applied.\n"
+                self.reloadTargets()
+            } else {
+                self.log += "\n❌ The patch does not apply to this inav version (status \(status)). Nothing was changed.\n"
+            }
+        }
+    }
+
+    /// Commits the selected target folder to a new git branch (the target must already contain the changes).
+    func commitToBranch(_ branch: String) {
+        guard let root = inavRoot, let t = analysis?.target else { return }
+        let rel = "src/main/target/\(t.name)"
+        let message = "\(t.name): servo outputs on UART/LED pads (\(Patcher.tag))"
+        let cmd = [
+            "cd \(shellQuote(root.path))",
+            "git switch -c \(shellQuote(branch))",
+            "git add -A -- \(shellQuote(rel)) \(shellQuote(":(exclude)" + rel + "/*.servo-backup"))",
+            "git commit -m \(shellQuote(message))",
+        ].joined(separator: " && ")
+        startJob(title: "Commit \(t.name) to branch \(branch)")
+        log += "$ \(cmd)\n"
+        runner.runShell(cmd, in: root, output: { [weak self] in self?.log += $0 }) { [weak self] status in
+            guard let self = self else { return }
+            self.jobRunning = false
+            self.log += status == 0
+                ? "\n✅ Committed to branch \(branch). Switch back with: git switch -\n"
+                : "\n❌ git failed (status \(status)) – see above. If the branch exists, choose another name; if git asks for your identity run: git config --global user.name / user.email\n"
+            self.refreshGitDescriptionPublic()
+        }
+    }
+
+    func promptCommitBranch() {
+        guard let t = analysis?.target else { alertMessage = "Select a target first."; return }
+        let alert = NSAlert()
+        alert.messageText = "Commit \(t.name) to a new git branch"
+        alert.informativeText = "Creates the branch in \(inavRoot?.lastPathComponent ?? "inav"), switches to it and commits src/main/target/\(t.name) (backups excluded). Apply your changes first."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.stringValue = "servo/\(t.name)"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Commit")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, name.firstMatch(#"^[A-Za-z0-9._/-]+$"#) != nil else {
+                alertMessage = "'\(name)' is not a valid branch name."
+                return
+            }
+            commitToBranch(name)
+        }
+    }
+
+    func refreshGitDescriptionPublic() {
+        guard let root = inavRoot else { return }
+        var out = ""
+        runner.run(executable: URL(fileURLWithPath: "/usr/bin/git"),
+                   arguments: ["-C", root.path, "log", "-1", "--format=%h %s (%cr)"],
+                   in: nil, output: { out += $0 }) { [weak self] status in
+            if status == 0 { self?.gitDescription = out.trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+    }
+
+    // MARK: - Hex / DFU flashing
+
+    func findHex(buildTarget: String) -> URL? {
+        guard let root = inavRoot else { return nil }
+        let build = root.appendingPathComponent("build")
+        let fm = FileManager.default
+        let names = (try? fm.contentsOfDirectory(atPath: build.path)) ?? []
+        let hexes = names.filter { $0.hasSuffix("_\(buildTarget).hex") }.map { build.appendingPathComponent($0) }
+        return hexes.max { a, b in
+            let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return da < db
+        }
+    }
+
+    func revealHex() {
+        guard let hex = lastHex else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([hex])
+    }
+
+    /// Converts the hex to a binary with the toolchain's objcopy and writes it with dfu-util.
+    func flashDFU(fullErase: Bool) {
+        guard let hex = lastHex, let root = inavRoot else { return }
+        let bin = hex.deletingPathExtension().appendingPathExtension("bin")
+        let address = fullErase ? "0x08000000:mass-erase:force:leave" : "0x08000000:leave"
+        let script = """
+        OBJCOPY=$(ls \(shellQuote(root.path))/tools/*/bin/arm-none-eabi-objcopy 2>/dev/null | tail -1)
+        [ -x "$OBJCOPY" ] || OBJCOPY=$(command -v arm-none-eabi-objcopy)
+        if [ -z "$OBJCOPY" ]; then echo "arm-none-eabi-objcopy not found – run Test Build first."; exit 1; fi
+        if ! command -v dfu-util >/dev/null 2>&1; then echo "dfu-util is not installed. Install it with:  brew install dfu-util"; exit 1; fi
+        echo "Converting \(hex.lastPathComponent) to binary …"
+        "$OBJCOPY" -I ihex -O binary \(shellQuote(hex.path)) \(shellQuote(bin.path)) || exit 1
+        if ! dfu-util -l 2>/dev/null | grep -Eiq "0483:df11|2e3c:df11"; then
+          echo "No flight controller in DFU mode found."
+          echo "Unplug USB, hold the BOOT button, plug USB back in, release the button and try again."
+          exit 1
+        fi
+        echo "Flashing (\(fullErase ? "full chip erase" : "keep settings")) …"
+        dfu-util -a 0 -s \(address) -D \(shellQuote(bin.path))
+        """
+        startJob(title: "Flash \(hex.lastPathComponent) via DFU")
+        log += "Flashing \(hex.path)\n"
+        runner.runShell(script, in: root, output: { [weak self] in self?.log += $0 }) { [weak self] status in
+            guard let self = self else { return }
+            self.jobRunning = false
+            self.log += status == 0
+                ? "\n✅ Flashed. The board restarts; connect with the inav configurator\(fullErase ? " – all settings were reset" : "").\n"
+                : "\n❌ Flashing failed (status \(status)). Your board is unchanged unless dfu-util reported progress above; you can always retry from DFU mode.\n"
+        }
+    }
+
+    func confirmFlash() {
+        guard let hex = lastHex else { return }
+        let alert = NSAlert()
+        alert.messageText = "Flash \(hex.lastPathComponent)?"
+        alert.informativeText = """
+        Put the flight controller into DFU mode first: unplug USB, hold the BOOT button, plug USB back in, release the button.
+        Needs dfu-util (brew install dfu-util). Close the inav configurator while flashing.
+        Alternative: inav configurator → Firmware Flasher → Load Firmware [Local].
+        """
+        let check = NSButton(checkboxWithTitle: "Full chip erase (resets all settings – recommended for a new or changed target)", target: nil, action: nil)
+        check.state = .on
+        alert.accessoryView = check
+        alert.addButton(withTitle: "Flash")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            flashDFU(fullErase: check.state == .on)
         }
     }
 
@@ -564,6 +784,8 @@ final class AppState: ObservableObject {
         let cmd = "cd \(shellQuote(root.path)) && mkdir -p build && cd build && " +
                   "cmake .. && make \(shellQuote(buildTarget))"
         startJob(title: "Build \(buildTarget)")
+        lastHex = nil
+        lastBuildTarget = buildTarget
         log += "Shared ARM toolchain cache: \(Self.sharedToolchainDir.path)\n"
         log += "$ \(cmd)\n"
         let full = Self.toolchainLinkScript(root: root) + "\n" + cmd
@@ -574,7 +796,13 @@ final class AppState: ObservableObject {
         }) { [weak self] status in
             guard let self = self else { return }
             self.jobRunning = false
-            self.log += status == 0 ? "\n✅ Build succeeded.\n" : "\n❌ Build failed (status \(status)).\n"
+            if status == 0 {
+                self.lastHex = self.findHex(buildTarget: buildTarget)
+                let firmware = self.lastHex?.path ?? "(hex not found in build/)"
+                self.log += "\n✅ Build succeeded. Firmware: \(firmware)\n"
+            } else {
+                self.log += "\n❌ Build failed (status \(status)).\n"
+            }
         }
     }
 

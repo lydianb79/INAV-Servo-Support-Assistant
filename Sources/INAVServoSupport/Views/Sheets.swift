@@ -163,6 +163,10 @@ struct LogSheet: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(state.log, forType: .string)
                 }
+                if !state.jobRunning && state.lastHex != nil && state.logTitle.hasPrefix("Build") {
+                    Button { state.revealHex() } label: { Label("Reveal .hex", systemImage: "doc.badge.gearshape") }
+                    Button { state.confirmFlash() } label: { Label("Flash via DFU…", systemImage: "bolt.horizontal.circle") }
+                }
                 Spacer()
                 if state.jobRunning {
                     Button("Stop") { state.cancelJob() }
@@ -202,6 +206,29 @@ struct DiffSheet: View {
                     }
                     .pickerStyle(.segmented).frame(width: 420)
                 }
+                HStack(spacing: 12) {
+                    Picker("Apply to", selection: $state.applyAsCopy) {
+                        Text("This target (in place)").tag(false)
+                        Text("New target copy").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 330)
+                    if state.applyAsCopy {
+                        TextField("New target name", text: $state.copyName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 220)
+                        if let problem = state.copyNameProblem {
+                            Text(problem).font(.caption).foregroundColor(.red)
+                        } else {
+                            Text("build with: make \(state.copyName)").font(.caption.monospaced()).foregroundColor(.secondary)
+                        }
+                    }
+                    Spacer()
+                }
+                if state.applyAsCopy {
+                    Text("A new folder src/main/target/\(state.copyName) is created with the changes below; \(plan.target.name) stays untouched. Variant names get the new prefix and target.h maps them back to the original macros.")
+                        .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 Group {
                     if file == 2 {
                         ScrollView {
@@ -238,15 +265,17 @@ struct DiffSheet: View {
                     }
                     Spacer()
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                    Button("Apply to Source") { state.apply() }
+                    Button { state.exportPatch() } label: { Label("Export .patch…", systemImage: "square.and.arrow.up") }
+                        .disabled(!plan.hasChanges || state.copyNameProblem != nil)
+                    Button(state.applyAsCopy ? "Create \(state.copyName)" : "Apply to Source") { state.apply() }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
-                        .disabled(!plan.hasChanges)
+                        .disabled(!plan.hasChanges || state.copyNameProblem != nil)
                 }
             }
         }
         .padding(16)
-        .frame(width: 900, height: 620)
+        .frame(width: 960, height: 680)
     }
 }
 

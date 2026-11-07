@@ -157,6 +157,19 @@ struct GPIOMapView: View {
                             .foregroundColor(.secondary)
                             .position(x: layout.origin.x - layout.cell * 0.35 - 16, y: layout.center(row: item.offset, column: 0).y)
                     }
+                    if layout.cell >= 22 {
+                        ForEach(labelledPins(layout), id: \.name) { item in
+                            Text(item.label)
+                                .font(.system(size: max(7, layout.cell * 0.24), weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                                .shadow(color: .black.opacity(0.8), radius: 1)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                                .frame(width: layout.cell * 0.95)
+                                .position(item.point)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     Color.clear
                         .contentShape(Rectangle())
                         .onContinuousHover { phase in
@@ -207,8 +220,25 @@ struct GPIOMapView: View {
         }
     }
 
+    private struct PinLabel { let name: String; let label: String; let point: CGPoint }
+
+    /// Board pad names (S1, TX6, LED …) drawn on top of the Metal balls.
+    private func labelledPins(_ layout: GPIOLayout) -> [PinLabel] {
+        var out = [PinLabel]()
+        for (row, port) in layout.ports.enumerated() {
+            for col in 0..<16 {
+                let name = "P\(port)\(col)"
+                if let l = analysis.padLabel(name) {
+                    out.append(PinLabel(name: name, label: l, point: layout.center(row: row, column: col)))
+                }
+            }
+        }
+        return out
+    }
+
     private func describe(_ pin: String) -> [String] {
         var lines = [String]()
+        if let l = analysis.padLabel(pin) { lines.append("Board pad: \(l)") }
         if let u = analysis.padPins[pin] { lines.append(u) }
         for t in analysis.target.activeTimers where t.pin == pin {
             lines.append("\(t.timer) \(t.channel) – \(t.roleDescription)")

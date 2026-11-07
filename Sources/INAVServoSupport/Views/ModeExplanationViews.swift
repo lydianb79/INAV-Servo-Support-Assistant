@@ -177,6 +177,12 @@ struct MotorStrip: View {
         return motors.enumerated().filter { d[$0.element.line] == nil }.map { $0.offset + 1 }
     }
 
+    private func chipText(_ e: TimerEntry) -> String {
+        var t = "\(e.pin) · \(e.timer)"
+        if let l = analysis.padLabel(e.pin) { t += " · " + l }
+        return t
+    }
+
     private var summary: String {
         if usable.count == motors.count { return "all \(motors.count) usable" }
         let list = usable.isEmpty ? "none" : usable.map(String.init).joined(separator: ", ")
@@ -202,7 +208,7 @@ struct MotorStrip: View {
                             Image(systemName: by == nil ? "checkmark.circle.fill" : "xmark.circle.fill")
                                 .foregroundColor(by == nil ? .green : .red)
                             Text("Motor \(item.offset + 1)").font(.caption.weight(.bold))
-                            Text("\(item.element.pin) · \(item.element.timer)")
+                            Text(chipText(item.element))
                                 .font(.caption.monospaced())
                                 .strikethrough(by != nil)
                                 .foregroundColor(.secondary)

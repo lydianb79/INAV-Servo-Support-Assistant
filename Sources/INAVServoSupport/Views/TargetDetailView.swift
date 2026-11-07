@@ -20,6 +20,7 @@ struct TargetDetailView: View {
                     PortPlanSection(analysis: analysis)
                     CLISnippetBox()
                     existingTimersSection
+                    dmaSection
                 }
                 .padding(20)
             }
@@ -116,6 +117,39 @@ struct TargetDetailView: View {
         }
     }
 
+    // MARK: DMA
+
+    private var dmaSection: some View {
+        let report = analysis.dmaReport
+        return DisclosureGroup {
+            VStack(alignment: .leading, spacing: 4) {
+                if report.applicable {
+                    ForEach(report.users) { u in
+                        HStack(spacing: 10) {
+                            Text(u.name).frame(width: 300, alignment: .leading)
+                            Text(u.stream.map { "\($0.streamKey), channel \($0.channel)" } ?? "no DMA")
+                                .foregroundColor(.secondary)
+                        }
+                        .font(.system(size: 11.5, design: .monospaced))
+                    }
+                    Divider()
+                }
+                ForEach(report.issues) { IssueRow(issue: $0) }
+                Text("Servo outputs don't use DMA. New servo entries get a DMA option that avoids these streams.")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+            .padding(.top, 6)
+        } label: {
+            HStack {
+                Text("DMA check (DShot motors, LED strip, ADC)")
+                if report.conflictCount > 0 {
+                    Text("\(report.conflictCount) shared stream\(report.conflictCount == 1 ? "" : "s") in the original target")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
     // MARK: actions
 
     private var actionBar: some View {
@@ -130,6 +164,20 @@ struct TargetDetailView: View {
             if state.hasBackup {
                 Button(role: .destructive) { state.revert() } label: { Label("Revert to Backup", systemImage: "arrow.uturn.backward") }
             }
+            Menu {
+                Button { state.exportPatch() } label: { Label("Export changes as .patch…", systemImage: "square.and.arrow.up") }
+                    .disabled(count == 0)
+                Button { state.importPatch() } label: { Label("Apply a .patch…", systemImage: "square.and.arrow.down") }
+                Button { state.promptCommitBranch() } label: { Label("Commit target to git branch…", systemImage: "arrow.triangle.branch") }
+                Divider()
+                Button { state.revealHex() } label: { Label("Reveal last .hex", systemImage: "doc.badge.gearshape") }
+                    .disabled(state.lastHex == nil)
+                Button { state.confirmFlash() } label: { Label("Flash last build via DFU…", systemImage: "bolt.horizontal.circle") }
+                    .disabled(state.lastHex == nil || state.jobRunning)
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
+            }
+            .fixedSize()
             Button { state.testBuild() } label: { Label("Test Build", systemImage: "hammer") }
                 .help("Runs cmake + make for this target in <inav>/build (requires cmake). The ARM compiler is downloaded once into a shared cache and reused for every inav checkout.")
                 .disabled(state.jobRunning)
@@ -246,6 +294,12 @@ struct PinRow: View {
                     HStack(spacing: 6) {
                         Text(pin.role).font(.caption.weight(.bold)).foregroundColor(.secondary).frame(width: 30, alignment: .leading)
                         Text(pin.pin).font(.body.monospaced().weight(.semibold))
+                        if let l = padBadge {
+                            Text("pad \(l)")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                        }
                     }
                 }
                 .toggleStyle(.checkbox)
@@ -288,6 +342,13 @@ struct PinRow: View {
                 .font(.caption)
             }
         }
+    }
+
+    /// Board pad name, unless it just repeats the UART pin role (TX2 for UART2 TX).
+    private var padBadge: String? {
+        guard let l = state.analysis?.padLabel(pin.pin) else { return nil }
+        if let n = pin.group.uartNumber, l == pin.role + String(n) { return nil }
+        return l
     }
 
     private func optionLabel(_ o: TimerOption) -> String {

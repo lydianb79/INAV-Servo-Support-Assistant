@@ -3,6 +3,7 @@ import Foundation
 struct DefineEntry: Hashable {
     let line: Int      // 0-based line index in target.h
     let value: String
+    var comment: String = ""   // trailing // comment, often the board pad name ("S5 pad", "TX6")
 }
 
 /// One DEF_TIM(...) line of target.c.
@@ -136,10 +137,12 @@ enum TargetParser {
 
     static func parseDefines(_ text: String) -> [String: [DefineEntry]] {
         var defines = [String: [DefineEntry]]()
+        let original = text.sourceLines
         for (i, line) in stripBlockComments(text).sourceLines.enumerated() {
             let code = line.codePart
             guard let m = code.firstMatch(#"^\s*#\s*define\s+(\w+)(?:\s+(.*?))?\s*$"#) else { continue }
-            defines[m[1], default: []].append(DefineEntry(line: i, value: m[2].trimmed))
+            let comment = i < original.count ? original[i].lineComment : ""
+            defines[m[1], default: []].append(DefineEntry(line: i, value: m[2].trimmed, comment: comment))
         }
         return defines
     }
@@ -169,5 +172,48 @@ enum TargetParser {
             entries.append(TimerEntry(line: i, args: args, comment: comment, active: active))
         }
         return entries
+    }
+}
+
+/// Board pad names (silkscreen labels such as S1, M5, TX6, LED) taken from the comments in target.c / target.h.
+enum PadLabels {
+    /// First word of a comment if it looks like a pad name.
+    static func label(fromComment comment: String) -> String? {
+        let first = comment.trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "," || $0 == ";" || $0 == "(" }).first.map(String.init) ?? ""
+        let token = first.trimmingCharacters(in: CharacterSet(charactersIn: ":-–|/*"))
+        guard !token.isEmpty, token.count <= 8 else { return nil }
+        let upper = token.uppercased()
+        if upper.firstMatch(#"^(S|M|MOTOR|SERVO|PWM|OUT)[0-9]{1,2}$"#) != nil { return upper }
+        if upper.firstMatch(#"^(T|R|TX|RX|SDA|SCL)[0-9]{1,2}$"#) != nil { return upper }
+        if upper.hasPrefix("LED") || upper == "WS2812" || upper == "2812LED" { return "LED" }
+        if ["PPM", "SBUS", "BEEPER", "BUZZ", "CAM", "CAMERA", "PINIO1", "PINIO2"].contains(upper) { return upper }
+        return nil
+    }
+
+    static func labels(for target: TargetInfo) -> [String: String] {
+        var result = [String: String]()
+        // UART pads are named after the port
+        for n in 1...8 where target.defines["USE_UART\(n)"] != nil {
+            for (role, short) in [("TX", "TX"), ("RX", "RX")] {
+                for v in target.values("UART\(n)_\(role)_PIN") where isPinName(v) && result[v] == nil {
+                    result[v] = "\(short)\(n)"
+                }
+            }
+        }
+        // comments of timer entries override (S1, M5, LED …)
+        for e in target.activeTimers {
+            if let l = label(fromComment: e.comment) { result[e.pin] = l }
+        }
+        // defines like  #define WS2811_PIN PA15 // S5 pad
+        for (name, entries) in target.defines {
+            for e in entries where isPinName(e.value) {
+                if let l = label(fromComment: e.comment), result[e.value] == nil || name == "WS2811_PIN" {
+                    result[e.value] = l
+                } else if name == "WS2811_PIN" && result[e.value] == nil {
+                    result[e.value] = "LED"
+                }
+            }
+        }
+        return result
     }
 }
