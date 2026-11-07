@@ -74,5 +74,11 @@ fi
 echo "==> ad-hoc code signing"
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || echo "warning: codesign failed (app still runs locally)"
 
+# macOS caches app icons per bundle path. Because the bundle is deleted and recreated here,
+# Finder/Dock would keep showing the old (or generic) icon – touch the bundle and re-register it.
+touch "$APP" "$APP/Contents/Info.plist"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+[ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
+
 echo "==> done: $(pwd)/$APP"
 if [ "$RUN" = "1" ]; then open "$APP"; fi

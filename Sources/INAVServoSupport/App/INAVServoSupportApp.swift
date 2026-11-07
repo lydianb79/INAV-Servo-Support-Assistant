@@ -33,6 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Needed when launched from a plain SwiftPM binary so the window gets focus and a Dock icon.
         NSApp.setActivationPolicy(.regular)
+        // Set the Dock icon explicitly so it shows even when the system icon cache is stale.
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = icon
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 
