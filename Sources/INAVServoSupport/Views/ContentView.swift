@@ -37,7 +37,7 @@ struct ContentView: View {
         .sheet(isPresented: $state.showCloneSheet) { CloneSheet().environmentObject(state) }
         .sheet(isPresented: $state.showDiffSheet) { DiffSheet().environmentObject(state) }
         .sheet(isPresented: $state.showLogSheet) { LogSheet().environmentObject(state) }
-        .alert("INAV Servo Support", isPresented: Binding(get: { state.alertMessage != nil },
+        .alert("INAV Servo Support Assistant", isPresented: Binding(get: { state.alertMessage != nil },
                                                           set: { if !$0 { state.alertMessage = nil } })) {
             Button("OK", role: .cancel) { state.alertMessage = nil }
         } message: {
@@ -68,7 +68,7 @@ struct WelcomeView: View {
         VStack(spacing: 22) {
             Image(systemName: "point.3.connected.trianglepath.dotted")
                 .font(.system(size: 56)).foregroundColor(.accentColor)
-            Text("INAV Servo Support Helper").font(.largeTitle.weight(.semibold))
+            Text("INAV Servo Support Assistant").font(.largeTitle.weight(.semibold))
             Text("Turn spare UART pads of an inav flight controller target into servo outputs. The helper checks each UART pin against the MCU's timer alternate-function table, shows the conflicts and edits target.c / target.h for you.")
                 .multilineTextAlignment(.center).foregroundColor(.secondary).frame(maxWidth: 560)
             HStack(spacing: 16) {

@@ -15,7 +15,7 @@ Requires macOS 13 (Ventura) or newer and Xcode *or* the Command Line Tools (`xco
 ```bash
 git clone https://github.com/lydianb79/INAV-Servo-Support-Assistant.git
 cd INAV-Servo-Support-Assistant
-./build_app.sh --run          # builds "INAV Servo Support.app" here and launches it
+./build_app.sh --run          # builds "INAV Servo Support Assistant.app" here and launches it
 ```
 
 Other options: `./build_app.sh --universal` (arm64 + x86_64, needs full Xcode).
@@ -65,8 +65,8 @@ so the separate `metal` compiler from full Xcode is **not** needed.
 numbering is unchanged:
 
 ```c
-    // Servo outputs on UART pads – added by INAV Servo Support Helper
-    DEF_TIM(TIM9, CH2, PA3,    TIM_USE_SERVO, 0, 0), // UART2 RX pad -> servo (INAV Servo Support Helper)
+    // Servo outputs on UART pads – added by INAV Servo Support Assistant
+    DEF_TIM(TIM9, CH2, PA3,    TIM_USE_SERVO, 0, 0), // UART2 RX pad -> servo (INAV Servo Support Assistant)
 ```
 
 If the pad already has a `DEF_TIM` line (e.g. `TIM_USE_PWM` or a softserial `TIM_USE_ANY`),
@@ -125,3 +125,15 @@ AppIcon.png
 Tools/servo_engine_reference.py   Python reference of the analysis/patch engine
 Tools/make_icon.py                renders AppIcon.png
 ```
+
+## License
+
+Copyright (C) 2026 lydianb79
+
+This program is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version – the same license as inav itself.
+See [LICENSE](LICENSE) for the full text.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

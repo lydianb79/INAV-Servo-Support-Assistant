@@ -32,7 +32,7 @@ enum PatchError: LocalizedError {
 }
 
 enum Patcher {
-    static let tag = "INAV Servo Support Helper"
+    static let tag = "INAV Servo Support Assistant"
 
     static func makePlan(target: TargetInfo, choices: [ServoChoice]) throws -> PatchPlan {
         guard !choices.isEmpty else { throw PatchError.nothingSelected }

@@ -7,7 +7,7 @@ struct INAVServoSupportApp: App {
     @StateObject private var state = AppState()
 
     var body: some Scene {
-        WindowGroup("INAV Servo Support") {
+        WindowGroup("INAV Servo Support Assistant") {
             ContentView()
                 .environmentObject(state)
                 .frame(minWidth: 1080, minHeight: 720)

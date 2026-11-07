@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "INAV Servo Support.app" from the Swift package in this folder.
+# Builds "INAV Servo Support Assistant.app" from the Swift package in this folder.
 # Requirements: macOS 13+, Xcode or the Xcode Command Line Tools (xcode-select --install).
 #
 #   ./build_app.sh            -> native release build
@@ -8,9 +8,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_NAME="INAV Servo Support"
+APP_NAME="INAV Servo Support Assistant"
 EXE="INAVServoSupport"
-BUNDLE_ID="local.inav.servo-support-helper"
+BUNDLE_ID="local.inav.servo-support-assistant"
 VERSION="1.0.0"
 
 ARCH_FLAGS=()

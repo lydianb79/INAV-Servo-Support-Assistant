@@ -267,7 +267,7 @@ def summarize(root):
     print(stats)
 
 
-TAG = 'INAV Servo Support Helper'
+TAG = 'INAV Servo Support Assistant'
 
 def find_close(lines):
     st = strip_block_comments('\n'.join(lines)).split('\n')

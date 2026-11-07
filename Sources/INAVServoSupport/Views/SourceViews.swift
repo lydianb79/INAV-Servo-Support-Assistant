@@ -49,7 +49,7 @@ struct StartSheet: View {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
                     .font(.system(size: 34)).foregroundColor(.accentColor)
                 VStack(alignment: .leading) {
-                    Text("INAV Servo Support Helper").font(.title2.weight(.semibold))
+                    Text("INAV Servo Support Assistant").font(.title2.weight(.semibold))
                     Text("Choose the inav source tree to work on.").foregroundColor(.secondary)
                 }
             }
