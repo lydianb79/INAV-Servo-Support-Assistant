@@ -56,8 +56,11 @@ so the separate `metal` compiler from full Xcode is **not** needed.
    * softserial that shares pins with a UART cannot be used together with that UART
 6. **Review & Apply** – diff of `target.c` and `target.h`; on apply, backups
    `target.c.servo-backup` / `target.h.servo-backup` are written once. *Revert to Backup* restores them.
-7. **Test Build** (optional) – runs `cmake .. && make <TARGET>` in `<inav>/build`
-   (needs `cmake`; inav's cmake downloads the ARM toolchain on the first run).
+7. **Test Build** (optional) – runs `cmake .. && make <TARGET>` in `<inav>/build` (needs `cmake`).
+   inav's cmake downloads the ARM compiler into `<inav>/downloads` and `<inav>/tools`; the app links both
+   folders to one shared cache (`~/Library/Application Support/INAV Servo Support Assistant/toolchain`), so the
+   compiler is downloaded only once, however often the inav folder is re-cloned. *File → Show ARM Toolchain
+   Cache in Finder* opens it.
 
 ## What gets changed
 

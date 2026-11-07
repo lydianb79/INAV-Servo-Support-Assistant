@@ -425,8 +425,10 @@ final class AppState: ObservableObject {
         let cmd = "cd \(shellQuote(root.path)) && mkdir -p build && cd build && " +
                   "cmake .. && make \(shellQuote(buildTarget))"
         startJob(title: "Build \(buildTarget)")
+        log += "Shared ARM toolchain cache: \(Self.sharedToolchainDir.path)\n"
         log += "$ \(cmd)\n"
-        runner.runShell(cmd, in: root, output: { [weak self] in
+        let full = Self.toolchainLinkScript(root: root) + "\n" + cmd
+        runner.runShell(full, in: root, output: { [weak self] in
             guard let self = self else { return }
             self.log += $0
             if self.log.count > 400_000 { self.log = String(self.log.suffix(300_000)) }
@@ -435,6 +437,54 @@ final class AppState: ObservableObject {
             self.jobRunning = false
             self.log += status == 0 ? "\n✅ Build succeeded.\n" : "\n❌ Build failed (status \(status)).\n"
         }
+    }
+
+    // MARK: - Shared ARM toolchain
+
+    /// inav's CMake downloads arm-none-eabi-gcc into <inav>/downloads and unpacks it into <inav>/tools.
+    /// Both folders are linked to one shared cache so the compiler is downloaded only once,
+    /// no matter how often the inav folder is re-cloned. The unpacked folder name contains the
+    /// compiler version, so different inav versions can share the cache.
+    static var sharedToolchainDir: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("INAV Servo Support Assistant/toolchain")
+    }
+
+    static func toolchainLinkScript(root: URL) -> String {
+        let shared = shellQuote(sharedToolchainDir.path)
+        return """
+        SHARED=\(shared)
+        mkdir -p "$SHARED/tools" "$SHARED/downloads"
+        cd \(shellQuote(root.path)) || exit 1
+        for d in tools downloads; do
+          if [ -L "$d" ]; then
+            :
+          elif [ -d "$d" ]; then
+            if [ -z "$(ls -A "$d")" ]; then
+              rmdir "$d" && ln -s "$SHARED/$d" "$d" && echo "toolchain cache: linked $d -> shared cache"
+            elif [ -z "$(ls -A "$SHARED/$d")" ]; then
+              echo "toolchain cache: moving this checkout's $d folder into the shared cache"
+              rmdir "$SHARED/$d" && mv "$d" "$SHARED/$d" && ln -s "$SHARED/$d" "$d"
+            else
+              echo "toolchain cache: keeping this checkout's own $d folder (shared cache already filled)"
+            fi
+          else
+            ln -s "$SHARED/$d" "$d" && echo "toolchain cache: linked $d -> shared cache"
+          fi
+        done
+        if [ -d .git/info ]; then
+          for p in /tools /downloads; do
+            grep -qxF "$p" .git/info/exclude 2>/dev/null || echo "$p" >> .git/info/exclude
+          done
+        fi
+        """
+    }
+
+    func revealToolchainCache() {
+        let dir = Self.sharedToolchainDir
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([dir])
     }
 
     func cancelJob() {

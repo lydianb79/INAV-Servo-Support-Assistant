@@ -21,6 +21,7 @@ struct INAVServoSupportApp: App {
                 Button("Choose Source / Start Screen…") { state.presentStartScreen() }
                     .keyboardShortcut("0", modifiers: [.command, .shift])
                 Divider()
+                Button("Show ARM Toolchain Cache in Finder") { state.revealToolchainCache() }
                 Button("Reload Targets") { state.reloadTargets() }
                     .keyboardShortcut("r")
                     .disabled(state.inavRoot == nil)

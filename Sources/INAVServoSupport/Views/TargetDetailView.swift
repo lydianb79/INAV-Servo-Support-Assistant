@@ -130,7 +130,7 @@ struct TargetDetailView: View {
                 Button(role: .destructive) { state.revert() } label: { Label("Revert to Backup", systemImage: "arrow.uturn.backward") }
             }
             Button { state.testBuild() } label: { Label("Test Build", systemImage: "hammer") }
-                .help("Runs cmake + make for this target in <inav>/build (requires cmake; the ARM toolchain is downloaded by inav's cmake on first run)")
+                .help("Runs cmake + make for this target in <inav>/build (requires cmake). The ARM compiler is downloaded once into a shared cache and reused for every inav checkout.")
                 .disabled(state.jobRunning)
             Button { state.showDiffSheet = true } label: { Label("Review & Apply…", systemImage: "doc.text.magnifyingglass") }
                 .buttonStyle(.borderedProminent)
