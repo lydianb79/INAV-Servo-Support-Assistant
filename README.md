@@ -75,8 +75,8 @@ If the pad already has a `DEF_TIM` line (e.g. `TIM_USE_PWM` or a softserial `TIM
 `target.h` – `MAX_PWM_OUTPUT_PORTS` is raised by the number of new outputs; in dedicated mode the UART
 is disabled and `SERIAL_PORT_COUNT` is decreased.
 
-After flashing: in the configurator assign the servo outputs in the Mixer, and set
-`timer_output_mode` for that timer to `SERVOS` if the timer is shared with auto outputs.
+After flashing: in the configurator assign the servo outputs in the Mixer. Pads are only offered on
+timers that carry no motor or auto (motor/servo) outputs, so the motor layout of the board is never affected.
 
 ## How candidates are determined
 
@@ -95,10 +95,11 @@ but inav's tables lack are listed as rejected with the reason.
 
 Conflict checks (blocking ✖ / warning ⚠):
 
-* ✖ timer drives motor-only outputs (motors and servos cannot share a timer in inav)
+* ✖ timer drives motor outputs or auto (motor/servo) outputs – motors and servos cannot share a timer in inav,
+  so such pads are never offered as candidates
 * ✖ the same timer channel is already used on another pin, or selected twice
 * ✖ pin is an ADC channel
-* ⚠ timer shared with auto (motor/servo) outputs, LED strip, beeper, PPM/PWM input or softserial
+* ⚠ timer shared with the LED strip, beeper, PPM/PWM input or softserial
 * ⚠ pin referenced by other defines (I2C, BIND_PIN, …), default receiver UART, UART1 in shared mode
 * ℹ complementary (CHxN) channel
 
