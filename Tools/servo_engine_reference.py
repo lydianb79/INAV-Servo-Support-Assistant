@@ -179,7 +179,7 @@ def analyze_pin(p, act, db, softserial_pins, softserial_timers, other_pin_users,
         motors = [e for e in same_tim if e.has('TIM_USE_MOTOR') and not e.has('TIM_USE_SERVO')]
         autos = [e for e in same_tim if e.has('TIM_USE_MOTOR') and e.has('TIM_USE_SERVO')]
         if motors: o['issues'].append(('block', '%s drives motor outputs (%s); motors and servos cannot share a timer' % (tim, ','.join(e.pin for e in motors))))
-        if autos: o['issues'].append(('block', '%s drives motor/servo outputs %s - timer would be claimed by motors' % (tim, ','.join(e.pin for e in autos))))
+        if autos: o['issues'].append(('warn', '%s shared with outputs %s - they must all be servos' % (tim, ','.join(e.pin for e in autos))))
         if any(e.has('TIM_USE_LED') for e in same_tim): o['issues'].append(('warn', '%s also drives LED strip' % tim))
         if any(e.has('TIM_USE_BEEPER') for e in same_tim): o['issues'].append(('warn', '%s also drives beeper' % tim))
         if any(e.has('TIM_USE_PPM') or e.has('TIM_USE_PWM') for e in same_tim): o['issues'].append(('warn', '%s used for PPM/PWM input' % tim))

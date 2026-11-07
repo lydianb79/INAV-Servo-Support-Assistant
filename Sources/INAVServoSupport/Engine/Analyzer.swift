@@ -278,15 +278,13 @@ enum Analyzer {
             let tc = options[i].channel
             var issues = options[i].issues
             let sameTimer = c.active.filter { $0.timer == tc.timer && $0.pin != pin }
-            // Motors and servos can never share a timer. Outputs marked TIM_USE_OUTPUT_AUTO are the
-            // board's motor outputs on a multirotor, so their timers are excluded as well.
             let motors = sameTimer.filter { $0.isMotorOnly }
             let autos = sameTimer.filter { $0.isAuto }
             if !motors.isEmpty {
                 issues.append(Issue(severity: .blocker, text: "\(tc.timer) drives motor outputs (\(motors.map { $0.pin }.joined(separator: ", "))); motors and servos cannot share a timer."))
             }
             if !autos.isEmpty {
-                issues.append(Issue(severity: .blocker, text: "\(tc.timer) drives the motor/servo outputs \(autos.map { $0.pin }.joined(separator: ", ")). When they run motors, inav gives the whole timer to the motors and this pad would never become a servo."))
+                issues.append(Issue(severity: .warning, text: "\(tc.timer) is shared with outputs \(autos.map { $0.pin }.joined(separator: ", ")) – they will all run as servos (or set timer_output_mode)."))
             }
             if sameTimer.contains(where: { $0.has("TIM_USE_LED") }) {
                 issues.append(Issue(severity: .warning, text: "\(tc.timer) also drives the LED strip; with LED_STRIP enabled the timer is unavailable for servos."))
