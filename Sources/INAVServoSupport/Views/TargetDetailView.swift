@@ -152,6 +152,15 @@ struct TargetDetailView: View {
 
     // MARK: actions
 
+    /// Why Review & Apply is disabled (nil = enabled).
+    private var reviewBlockReason: String? {
+        if state.choices.isEmpty { return "Select at least one UART or LED pad to enable Review & Apply." }
+        if let blocker = state.selectionIssues.first(where: { $0.severity == .blocker }) {
+            return "Blocked: " + blocker.text
+        }
+        return nil
+    }
+
     private var actionBar: some View {
         HStack(spacing: 12) {
             let count = state.choices.count
@@ -181,9 +190,18 @@ struct TargetDetailView: View {
             Button { state.testBuild() } label: { Label("Test Build", systemImage: "hammer") }
                 .help("Runs cmake + make for this target in <inav>/build (requires cmake). The ARM compiler is downloaded once into a shared cache and reused for every inav checkout.")
                 .disabled(state.jobRunning)
+            if let reason = reviewBlockReason {
+                Label(reason, systemImage: count == 0 ? "info.circle" : "xmark.octagon.fill")
+                    .font(.caption)
+                    .foregroundColor(count == 0 ? .secondary : .red)
+                    .lineLimit(2)
+                    .frame(maxWidth: 360, alignment: .trailing)
+                    .help(reason)
+            }
             Button { state.showDiffSheet = true } label: { Label("Review & Apply…", systemImage: "doc.text.magnifyingglass") }
                 .buttonStyle(.borderedProminent)
-                .disabled(count == 0 || state.selectionIssues.contains { $0.severity == .blocker })
+                .disabled(reviewBlockReason != nil)
+                .help(reviewBlockReason ?? "Show the changes to target.c / target.h / config.c before writing them")
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .background(.bar)
