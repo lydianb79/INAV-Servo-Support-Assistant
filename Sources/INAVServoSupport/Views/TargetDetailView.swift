@@ -183,6 +183,8 @@ struct TargetDetailView: View {
                     .disabled(state.lastHex == nil)
                 Button { state.confirmFlash() } label: { Label("Flash last build via DFU…", systemImage: "bolt.horizontal.circle") }
                     .disabled(state.lastHex == nil || state.jobRunning)
+                Button { state.rebootToDFU() } label: { Label("Reboot flight controller into DFU", systemImage: "arrow.clockwise.circle") }
+                    .disabled(state.jobRunning)
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
             }

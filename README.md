@@ -92,7 +92,10 @@ servo pads in shared mode, `serial <id> <mask>` for the receiver / GPS / VTX por
   switches to it and commits the target folder (backups excluded).
 * **Flash** – after a successful *Test Build* the log offers *Reveal .hex* and *Flash via DFU…*: the hex is
   converted with the toolchain's `arm-none-eabi-objcopy` and written with `dfu-util` (`brew install dfu-util`),
-  optionally with full chip erase. Put the board into DFU mode (hold BOOT while plugging in USB) first.
+  optionally with full chip erase. **No BOOT button needed:** if the board isn't in DFU mode yet, the app opens
+  its USB serial port (`/dev/cu.usbmodem*`), enters the inav CLI (`#`) and sends `dfu`, then waits for the
+  bootloader. *More → Reboot flight controller into DFU* does only this step. Close the inav configurator first
+  (it holds the port); boards that don't run inav or don't respond still need the BOOT button.
 * **Board pad names** – S1, M5, TX6, LED … are read from the comments in `target.c` / `target.h` and shown on
   the pin map, in the pad rows and on the motor chips.
 * **DMA check** – on STM32F4/F7 the DMA streams of DShot motors (per channel, or per timer with

@@ -701,8 +701,71 @@ final class AppState: ObservableObject {
     }
 
     /// Converts the hex to a binary with the toolchain's objcopy and writes it with dfu-util.
-    func flashDFU(fullErase: Bool) {
+    /// Shell snippet: if no board is in DFU mode yet, find the flight controller's USB serial port
+    /// (/dev/cu.usbmodem*), enter the inav CLI with '#' and send 'dfu' – inav then reboots into its
+    /// USB bootloader. Waits up to 15 s for the DFU device to appear.
+    static let rebootToDFUScript = """
+    dfu_present() { dfu-util -l 2>/dev/null | grep -Eiq "0483:df11|2e3c:df11"; }
+    if ! command -v dfu-util >/dev/null 2>&1; then echo "dfu-util is not installed. Install it with:  brew install dfu-util"; exit 1; fi
+    if dfu_present; then
+      echo "Flight controller is already in DFU mode."
+    else
+      PORT=$(ls /dev/cu.usbmodem* 2>/dev/null | head -1)
+      if [ -z "$PORT" ]; then
+        echo "No flight controller found on USB (/dev/cu.usbmodem*)."
+        echo "Connect it with USB – or hold the BOOT button while plugging in to enter DFU mode manually."
+        exit 1
+      fi
+      echo "Rebooting the flight controller on $PORT into DFU mode (inav CLI command 'dfu') …"
+      if ! ( exec 3<>"$PORT" ) 2>/dev/null; then
+        echo "Cannot open $PORT – close the inav configurator (or anything else using the port) and try again."
+        exit 1
+      fi
+      exec 3<>"$PORT"
+      stty 115200 raw -echo <&3 2>/dev/null
+      printf '#' >&3
+      sleep 1
+      printf '\\r\\ndfu\\r\\n' >&3
+      sleep 1
+      exec 3>&-
+      for i in $(seq 1 30); do
+        if dfu_present; then break; fi
+        sleep 0.5
+      done
+      if ! dfu_present; then
+        echo "The board did not show up in DFU mode. If it is armed, disarm it."
+        echo "Otherwise hold the BOOT button while plugging in USB and try again."
+        exit 1
+      fi
+      echo "Flight controller is in DFU mode."
+    fi
+    """
+
+    func rebootToDFU() {
+        guard let root = inavRoot else { return }
+        startJob(title: "Reboot flight controller into DFU")
+        runner.runShell(Self.rebootToDFUScript, in: root, output: { [weak self] in self?.log += $0 }) { [weak self] status in
+            guard let self = self else { return }
+            self.jobRunning = false
+            self.log += status == 0
+                ? "\n✅ Ready for flashing (DFU). Unplug USB to leave DFU mode without flashing.\n"
+                : "\n❌ Could not switch to DFU mode (status \(status)).\n"
+        }
+    }
+
+    /// Fallback when automatic reboot is off: only check that a board is already in DFU mode.
+    static let requireDFUScript = """
+    if ! command -v dfu-util >/dev/null 2>&1; then echo "dfu-util is not installed. Install it with:  brew install dfu-util"; exit 1; fi
+    if ! dfu-util -l 2>/dev/null | grep -Eiq "0483:df11|2e3c:df11"; then
+      echo "No flight controller in DFU mode found."
+      echo "Unplug USB, hold the BOOT button, plug USB back in, release the button and try again."
+      exit 1
+    fi
+    """
+
+    func flashDFU(fullErase: Bool, autoReboot: Bool = true) {
         guard let hex = lastHex, let root = inavRoot else { return }
+        let dfuStep = autoReboot ? Self.rebootToDFUScript : Self.requireDFUScript
         let bin = hex.deletingPathExtension().appendingPathExtension("bin")
         let address = fullErase ? "0x08000000:mass-erase:force:leave" : "0x08000000:leave"
         let script = """
@@ -712,11 +775,7 @@ final class AppState: ObservableObject {
         if ! command -v dfu-util >/dev/null 2>&1; then echo "dfu-util is not installed. Install it with:  brew install dfu-util"; exit 1; fi
         echo "Converting \(hex.lastPathComponent) to binary …"
         "$OBJCOPY" -I ihex -O binary \(shellQuote(hex.path)) \(shellQuote(bin.path)) || exit 1
-        if ! dfu-util -l 2>/dev/null | grep -Eiq "0483:df11|2e3c:df11"; then
-          echo "No flight controller in DFU mode found."
-          echo "Unplug USB, hold the BOOT button, plug USB back in, release the button and try again."
-          exit 1
-        fi
+        \(dfuStep)
         echo "Flashing (\(fullErase ? "full chip erase" : "keep settings")) …"
         dfu-util -a 0 -s \(address) -D \(shellQuote(bin.path))
         """
@@ -736,17 +795,24 @@ final class AppState: ObservableObject {
         let alert = NSAlert()
         alert.messageText = "Flash \(hex.lastPathComponent)?"
         alert.informativeText = """
-        Put the flight controller into DFU mode first: unplug USB, hold the BOOT button, plug USB back in, release the button.
+        Connect the flight controller with USB. The app switches it into DFU mode automatically (inav CLI command "dfu") – no BOOT button needed. Boards that don't run inav or don't respond still need the BOOT button.
         Needs dfu-util (brew install dfu-util). Close the inav configurator while flashing.
         Alternative: inav configurator → Firmware Flasher → Load Firmware [Local].
         """
         let check = NSButton(checkboxWithTitle: "Full chip erase (resets all settings – recommended for a new or changed target)", target: nil, action: nil)
         check.state = .on
-        alert.accessoryView = check
+        let auto = NSButton(checkboxWithTitle: "Reboot into DFU mode automatically via USB", target: nil, action: nil)
+        auto.state = .on
+        let stack = NSStackView(views: [auto, check])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.frame = NSRect(x: 0, y: 0, width: 460, height: 48)
+        alert.accessoryView = stack
         alert.addButton(withTitle: "Flash")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
-            flashDFU(fullErase: check.state == .on)
+            flashDFU(fullErase: check.state == .on, autoReboot: auto.state == .on)
         }
     }
 
