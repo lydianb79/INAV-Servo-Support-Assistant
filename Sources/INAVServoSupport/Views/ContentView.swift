@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
@@ -32,6 +33,9 @@ struct ContentView: View {
                         .help("Show target.c / target.h in Finder")
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            state.refreshTargetList()
         }
         .sheet(isPresented: $state.showStartSheet) { StartSheet().environmentObject(state) }
         .sheet(isPresented: $state.showCloneSheet) { CloneSheet().environmentObject(state) }

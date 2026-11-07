@@ -155,6 +155,23 @@ final class AppState: ObservableObject {
         loadSelectedTarget()
     }
 
+    /// Light refresh (e.g. when the app becomes active): picks up target folders added or removed
+    /// in Finder without discarding the current selection.
+    func refreshTargetList() {
+        guard let root = inavRoot, !jobRunning else { return }
+        let fresh = TargetParser.listTargets(root: root)
+        if fresh.map({ $0.name }) != targets.map({ $0.name }) {
+            let added = Set(fresh.map { $0.name }).subtracting(targets.map { $0.name })
+            targets = fresh
+            if let sel = selectedTargetName, !fresh.contains(where: { $0.name == sel }) {
+                selectedTargetName = nil
+                statusMessage = "Target \(sel) no longer exists in \(root.lastPathComponent)/src/main/target."
+            } else if !added.isEmpty {
+                statusMessage = "New target folder(s): \(added.sorted().joined(separator: ", "))"
+            }
+        }
+    }
+
     private func refreshGitDescription() {
         guard let root = inavRoot else { gitDescription = ""; return }
         gitDescription = ""
@@ -368,8 +385,10 @@ final class AppState: ObservableObject {
     func testBuild() {
         guard let root = inavRoot, let t = analysis?.target else { return }
         let buildTarget = t.variants.first ?? t.name
+        // Always re-run cmake: inav's CMake scans src/main/target when it configures, so a target folder
+        // added after the first configure would otherwise be unknown to make ("No rule to make target").
         let cmd = "cd \(shellQuote(root.path)) && mkdir -p build && cd build && " +
-                  "( [ -f Makefile ] || cmake .. ) && make \(shellQuote(buildTarget))"
+                  "cmake .. && make \(shellQuote(buildTarget))"
         startJob(title: "Build \(buildTarget)")
         log += "$ \(cmd)\n"
         runner.runShell(cmd, in: root, output: { [weak self] in
