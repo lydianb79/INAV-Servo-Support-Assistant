@@ -100,6 +100,10 @@ struct OutcomeBox: View {
             }
         }
         let target = state.analysis?.target
+        if !out.isEmpty {
+            out.append(Line(symbol: "power.circle", color: .blue,
+                            text: Patcher.outputEnableNote))
+        }
         switch (group.kind, mode) {
         case (.uart, .shared):
             out.append(Line(symbol: "checkmark.circle", color: .green,

@@ -34,6 +34,9 @@ enum PatchError: LocalizedError {
 enum Patcher {
     static let tag = "INAV Servo Support Assistant"
 
+    /// inav only starts servo (and motor) timer outputs when this feature is on; no target enables it by default.
+    static let outputEnableNote = "After flashing: \"Enable motor and servo output\" must be on (configurator, or CLI: feature PWM_OUTPUT_ENABLE + save). Otherwise servo outputs aren't started."
+
     static func makePlan(target: TargetInfo, choices: [ServoChoice]) throws -> PatchPlan {
         guard !choices.isEmpty else { throw PatchError.nothingSelected }
         if let bad = choices.first(where: { !$0.option.isUsable }) {
@@ -198,6 +201,8 @@ enum Patcher {
                 changes.append("target.h: MAX_PWM_OUTPUT_PORTS not defined – inav default applies.")
             }
         }
+
+        warnings.append(Issue(severity: .info, text: outputEnableNote))
 
         let newC = cLines.joined(separator: "\n")
         let newH = hLines.joined(separator: "\n")

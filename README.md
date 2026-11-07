@@ -78,7 +78,8 @@ If the pad already has a `DEF_TIM` line (e.g. `TIM_USE_PWM` or a softserial `TIM
 `target.h` – `MAX_PWM_OUTPUT_PORTS` is raised by the number of new outputs; in dedicated mode the UART
 is disabled and `SERIAL_PORT_COUNT` is decreased.
 
-After flashing: in the configurator assign the servo outputs in the Mixer, and set
+After flashing: turn on "Enable motor and servo output" (CLI `feature PWM_OUTPUT_ENABLE`, then `save`) –
+no inav target enables it by default and without it servo outputs are not started. Then assign the servo outputs in the Mixer, and set
 `timer_output_mode` for that timer to `SERVOS` if the timer is shared with auto outputs.
 
 ## How candidates are determined
