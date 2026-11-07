@@ -3,7 +3,7 @@ import simd
 
 /// Visual state of one GPIO in the map.
 enum PinVisual: CaseIterable {
-    case free, used, timerOther, output, uartNoTimer, candidate, alreadyServo, selected, selectedWarning, freedMotor, disabledPad
+    case free, used, timerOther, output, uartNoTimer, candidate, alreadyServo, selected, selectedWarning
 
     var title: String {
         switch self {
@@ -16,8 +16,6 @@ enum PinVisual: CaseIterable {
         case .alreadyServo: return "Pad already servo-capable"
         case .selected: return "Selected for servo"
         case .selectedWarning: return "Selected (check warnings)"
-        case .freedMotor: return "Motor output given up"
-        case .disabledPad: return "Output disabled"
         }
     }
 
@@ -32,8 +30,6 @@ enum PinVisual: CaseIterable {
         case .alreadyServo: return SIMD4(0.10, 0.75, 0.70, 1.0)
         case .selected: return SIMD4(1.00, 0.62, 0.10, 1.0)
         case .selectedWarning: return SIMD4(1.00, 0.30, 0.25, 1.0)
-        case .freedMotor: return SIMD4(0.95, 0.25, 0.65, 1.0)
-        case .disabledPad: return SIMD4(0.45, 0.10, 0.12, 1.0)
         }
     }
 
@@ -103,13 +99,6 @@ struct GPIOMapView: View {
         if let s = selected {
             return s.option.issues.contains { $0.severity >= .warning } ? .selectedWarning : .selected
         }
-        let choices = state.choices
-        let disabledPins = Set(choices.flatMap { c in c.option.disablesEntries.map { e in e.pin } })
-        let freedPins = Set(choices.flatMap { c in c.option.freesMotors.map { e in e.pin } })
-        if disabledPins.contains(pin) || (state.freedMotorMode == .disabled && freedPins.contains(pin)) {
-            return .disabledPad
-        }
-        if freedPins.contains(pin) { return .freedMotor }
         let uartPins = analysis.allPins.filter { $0.pin == pin }
         if let p = uartPins.first {
             if p.isAlreadyServo { return .alreadyServo }
@@ -188,7 +177,7 @@ struct GPIOMapView: View {
     }
 
     private var legend: some View {
-        let items: [PinVisual] = [.candidate, .selected, .selectedWarning, .alreadyServo, .uartNoTimer, .output, .freedMotor, .disabledPad, .timerOther, .used, .free]
+        let items: [PinVisual] = [.candidate, .selected, .selectedWarning, .alreadyServo, .uartNoTimer, .output, .timerOther, .used, .free]
         return LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), alignment: .leading)], alignment: .leading, spacing: 4) {
             ForEach(items, id: \.self) { v in
                 HStack(spacing: 6) {

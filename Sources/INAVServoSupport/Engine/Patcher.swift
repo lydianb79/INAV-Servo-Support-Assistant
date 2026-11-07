@@ -1,12 +1,5 @@
 import Foundation
 
-/// What happens to motor outputs whose timer is taken over by a servo pad.
-enum FreedMotorMode: String, CaseIterable, Identifiable {
-    case servo = "become servo outputs"
-    case disabled = "are disabled"
-    var id: String { rawValue }
-}
-
 /// One pad the user decided to turn into a servo output.
 struct ServoChoice: Hashable {
     let pin: PinAnalysis
@@ -41,7 +34,7 @@ enum PatchError: LocalizedError {
 enum Patcher {
     static let tag = "INAV Servo Support Assistant"
 
-    static func makePlan(target: TargetInfo, choices: [ServoChoice], freedMotorMode: FreedMotorMode = .servo) throws -> PatchPlan {
+    static func makePlan(target: TargetInfo, choices: [ServoChoice]) throws -> PatchPlan {
         guard !choices.isEmpty else { throw PatchError.nothingSelected }
         if let bad = choices.first(where: { !$0.option.isUsable }) {
             throw PatchError.blocked("\(bad.pin.pin) → \(bad.option.channel.id) has blocking issues.")
@@ -79,37 +72,6 @@ enum Patcher {
             case .unusable:
                 continue
             }
-        }
-
-        // Motor outputs that share a timer with a new servo pad
-        var disableLines = Set<Int>()
-        var convertLines = Set<Int>()
-        var freedBy = [Int: String]()
-        for choice in choices {
-            for e in choice.option.disablesEntries { disableLines.insert(e.line); freedBy[e.line] = choice.pin.label }
-            for e in choice.option.freesMotors { convertLines.insert(e.line); freedBy[e.line] = freedBy[e.line] ?? choice.pin.label }
-        }
-        convertLines.subtract(disableLines)
-        if freedMotorMode == .disabled {
-            disableLines.formUnion(convertLines)
-            convertLines = []
-        }
-        for line in convertLines.sorted() where line < cLines.count {
-            let entry = target.timers.first { $0.line == line }
-            cLines[line] = upgradeLine(cLines[line], label: "motor freed for \(freedBy[line] ?? "servo pad") →",
-                                       removing: ["TIM_USE_MOTOR", "TIM_USE_OUTPUT_AUTO"])
-            changes.append("target.c line \(line + 1): \(entry?.pin ?? "?") (\(entry?.timerChannel.id ?? "")) is no longer a motor output – now servo only.")
-        }
-        for line in disableLines.sorted() where line < cLines.count {
-            let entry = target.timers.first { $0.line == line }
-            cLines[line] = "// " + cLines[line] + "    // disabled: timer freed for \(freedBy[line] ?? "servo pad") (\(tag))"
-            changes.append("target.c line \(line + 1): motor output \(entry?.pin ?? "?") (\(entry?.timerChannel.id ?? "")) disabled.")
-        }
-        if !disableLines.isEmpty || !convertLines.isEmpty {
-            let lost = disableLines.union(convertLines)
-            let remaining = Analyzer.motorOutputs(target).filter { !lost.contains($0.line) }
-            let order = remaining.enumerated().map { "M\($0.offset + 1) \($0.element.pin)" }.joined(separator: ", ")
-            warnings.append(Issue(severity: .warning, text: "Motor outputs after applying: \(order). Check motor order and direction in the configurator before flying."))
         }
 
         if !newEntries.isEmpty {

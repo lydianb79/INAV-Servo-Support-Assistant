@@ -24,15 +24,6 @@ final class AppState: ObservableObject {
     @Published var padMode: [String: UartMode] = [:]   // keyed by PadGroup.id
     @Published var hoveredPin: String?
 
-    // Motor outputs that may be given up for servo pads
-    @Published var minMotors: Int = 2 {
-        didSet {
-            UserDefaults.standard.set(minMotors, forKey: "minMotors")
-            if minMotors != oldValue { reanalyzeKeepingSelection() }
-        }
-    }
-    @Published var freedMotorMode: FreedMotorMode = .servo
-
     // Peripheral planning
     @Published var receiverChoice: ReceiverChoice = .crsf
     @Published var wantGPS = true
@@ -65,9 +56,6 @@ final class AppState: ObservableObject {
         recentRoots = (defaults.stringArray(forKey: recentsKey) ?? [])
             .map { URL(fileURLWithPath: $0) }
             .filter { TargetParser.isINAVRoot($0) }
-        if defaults.object(forKey: "minMotors") != nil {
-            minMotors = max(1, defaults.integer(forKey: "minMotors"))
-        }
         if defaults.object(forKey: startKey) != nil {
             showStartScreenOnLaunch = defaults.bool(forKey: startKey)
         }
@@ -255,7 +243,7 @@ final class AppState: ObservableObject {
                 return
             }
             let chip = try ChipDatabase(inavRoot: root, mcu: mcu)
-            let a = Analyzer.analyze(target: target, chip: chip, minMotors: minMotors)
+            let a = Analyzer.analyze(target: target, chip: chip)
             for g in a.groups {
                 padMode[g.id] = g.requiresDedicated ? .dedicated : .shared
                 for p in g.pins {
@@ -267,22 +255,6 @@ final class AppState: ObservableObject {
         } catch {
             loadError = error.localizedDescription
         }
-    }
-
-    /// Re-runs the analysis (e.g. after changing the minimum motor count) and keeps the user's choices
-    /// where they are still valid.
-    func reanalyzeKeepingSelection() {
-        guard let old = analysis else { return }
-        let a = Analyzer.analyze(target: old.target, chip: old.chip, minMotors: minMotors)
-        for g in a.groups {
-            if padMode[g.id] == nil { padMode[g.id] = g.requiresDedicated ? .dedicated : .shared }
-            for p in g.pins {
-                if !p.isCandidate { pinEnabled[p.id] = false }
-                if let chosen = pinOption[p.id], p.options.contains(where: { $0.id == chosen && $0.isUsable }) { continue }
-                pinOption[p.id] = p.best?.id
-            }
-        }
-        analysis = a
     }
 
     func pin(_ id: String) -> PinAnalysis? {
@@ -329,7 +301,7 @@ final class AppState: ObservableObject {
 
     var selectionIssues: [Issue] {
         guard let a = analysis else { return [] }
-        var issues = Analyzer.crossCheck(selected: choices.map { (pin: $0.pin, option: $0.option) }, target: a.target, minMotors: minMotors)
+        var issues = Analyzer.crossCheck(selected: choices.map { (pin: $0.pin, option: $0.option) }, target: a.target)
         for u in a.groups where isGroupSelected(u) {
             if u.requiresDedicated && padMode[u.id] == .shared {
                 issues.append(Issue(severity: .warning, text: "UART1 in shared mode: inav does not skip timer outputs on UART1 pads – serial and servo would fight for the pins."))
@@ -346,7 +318,7 @@ final class AppState: ObservableObject {
 
     var plan: Result<PatchPlan, Error> {
         guard let a = analysis else { return .failure(PatchError.nothingSelected) }
-        do { return .success(try Patcher.makePlan(target: a.target, choices: choices, freedMotorMode: freedMotorMode)) }
+        do { return .success(try Patcher.makePlan(target: a.target, choices: choices)) }
         catch { return .failure(error) }
     }
 

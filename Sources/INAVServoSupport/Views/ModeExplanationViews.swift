@@ -94,17 +94,6 @@ struct OutcomeBox: View {
             }
             out.append(Line(symbol: "arrow.right.circle.fill", color: .orange,
                             text: "\(c.pin.pin) (\(c.pin.label)) → servo output on \(tc.timer) \(tc.channel)\(how)"))
-            if !c.option.freesMotors.isEmpty {
-                let pins = c.option.freesMotors.map { $0.pin }.joined(separator: ", ")
-                let what = state.freedMotorMode == .servo ? "become servo outputs" : "are disabled"
-                out.append(Line(symbol: "rotate.3d", color: .red,
-                                text: "Motor outputs \(pins) on \(tc.timer) are given up and \(what)."))
-            }
-            if !c.option.disablesEntries.isEmpty {
-                let pins = c.option.disablesEntries.map { $0.pin }.joined(separator: ", ")
-                out.append(Line(symbol: "xmark.circle", color: .red,
-                                text: "\(pins) used \(tc.timer) \(tc.baseChannel) as a motor output and \(c.option.disablesEntries.count == 1 ? "is" : "are") disabled (one channel can drive only one pad)."))
-            }
         }
         let target = state.analysis?.target
         switch (group.kind, mode) {
@@ -156,63 +145,5 @@ struct OutcomeBox: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6)
             .fill((mode == .shared ? Color.blue : Color.purple).opacity(0.07)))
-    }
-}
-
-/// Minimum motor outputs to keep and what happens to motor pads whose timer is taken by a servo pad.
-struct MotorOutputsBox: View {
-    @EnvironmentObject var state: AppState
-    let analysis: TargetAnalysis
-
-    var body: some View {
-        let motors = analysis.motorOutputs
-        let lost = state.choices.reduce(into: Set<Int>()) { $0.formUnion($1.option.affectedMotorLines) }
-        let remaining = motors.filter { !lost.contains($0.line) }
-        GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Label("Motor outputs", systemImage: "rotate.3d").font(.headline)
-                    Spacer()
-                    Stepper("Keep at least \(state.minMotors) motor output\(state.minMotors == 1 ? "" : "s")",
-                            value: $state.minMotors, in: 1...max(1, motors.count))
-                        .fixedSize()
-                }
-                Text("A pad whose timer drives motors can still become a servo: inav cannot mix motors and servos on one timer, so the motor outputs on that timer are given up. Pads on the very same timer channel are always disabled. A selection is blocked when fewer motor outputs than set here would remain.")
-                    .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 6, alignment: .leading)], alignment: .leading, spacing: 6) {
-                    ForEach(motors) { m in
-                        let isLost = lost.contains(m.line)
-                        let index = remaining.firstIndex(where: { $0.line == m.line })
-                        HStack(spacing: 4) {
-                            Image(systemName: isLost ? "xmark.circle.fill" : "checkmark.circle.fill")
-                                .foregroundColor(isLost ? .red : .green)
-                            Text(index.map { "M\($0 + 1) " } ?? "– ")
-                                .font(.caption.weight(.bold))
-                            Text("\(m.pin) · \(m.timer)")
-                                .font(.caption.monospaced())
-                                .strikethrough(isLost)
-                        }
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(Capsule().fill((isLost ? Color.red : Color.green).opacity(0.12)))
-                        .help(isLost ? "This motor output is given up for a servo pad." : "Remains a motor output.")
-                    }
-                }
-                HStack {
-                    Text("Freed motor pads")
-                        .font(.caption)
-                    Picker("", selection: $state.freedMotorMode) {
-                        ForEach(FreedMotorMode.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(maxWidth: 360)
-                    Spacer()
-                    Text("\(remaining.count) of \(motors.count) motor outputs remain")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(remaining.count < state.minMotors ? .red : (lost.isEmpty ? .secondary : .orange))
-                }
-            }
-            .padding(4)
-        }
     }
 }

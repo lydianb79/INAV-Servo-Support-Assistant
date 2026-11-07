@@ -162,8 +162,6 @@ def def_value(t, name):
 
 PIN_RE = re.compile(r'^P[A-K]\d{1,2}$')
 
-MIN_MOTORS = 2
-
 def analyze_pin(p, act, db, softserial_pins, softserial_timers, other_pin_users, adc_pins):
     pin = p['pin']
     p['existing'] = [e for e in act if e.pin == pin]
@@ -178,23 +176,16 @@ def analyze_pin(p, act, db, softserial_pins, softserial_timers, other_pin_users,
         if not o['usable']: continue
         tim, ch = o['timch'].split('_', 1)
         same_tim = [e for e in act if e.tim == tim and e.pin != pin]
-        motor_count = len([e for e in act if e.has('TIM_USE_MOTOR')])
-        motors_on = [e for e in same_tim if e.has('TIM_USE_MOTOR')]
-        bch = ch.rstrip('N')
-        same_ch = [e for e in same_tim if e.ch.rstrip('N') == bch]
-        o['disables'] = [e for e in same_ch if e.has('TIM_USE_MOTOR')]
-        for e in same_ch:
-            if not e.has('TIM_USE_MOTOR'): o['issues'].append(('block', '%s %s already used on pin %s' % (tim, bch, e.pin)))
-        o['frees'] = [e for e in motors_on if e not in o['disables']]
-        if motors_on:
-            remaining = motor_count - len(motors_on)
-            if remaining < MIN_MOTORS:
-                o['issues'].append(('block', '%s: freeing motors %s leaves %d of %d' % (tim, ','.join(e.pin for e in motors_on), remaining, motor_count)))
-            else:
-                o['issues'].append(('warn', '%s: frees motors %s (%d of %d remain)' % (tim, ','.join(e.pin for e in motors_on), remaining, motor_count)))
+        motors = [e for e in same_tim if e.has('TIM_USE_MOTOR') and not e.has('TIM_USE_SERVO')]
+        autos = [e for e in same_tim if e.has('TIM_USE_MOTOR') and e.has('TIM_USE_SERVO')]
+        if motors: o['issues'].append(('block', '%s drives motor outputs (%s); motors and servos cannot share a timer' % (tim, ','.join(e.pin for e in motors))))
+        if autos: o['issues'].append(('block', '%s drives motor/servo outputs %s - timer would be claimed by motors' % (tim, ','.join(e.pin for e in autos))))
         if any(e.has('TIM_USE_LED') for e in same_tim): o['issues'].append(('warn', '%s also drives LED strip' % tim))
         if any(e.has('TIM_USE_BEEPER') for e in same_tim): o['issues'].append(('warn', '%s also drives beeper' % tim))
         if any(e.has('TIM_USE_PPM') or e.has('TIM_USE_PWM') for e in same_tim): o['issues'].append(('warn', '%s used for PPM/PWM input' % tim))
+        bch = ch.rstrip('N')
+        clash = [e for e in same_tim if e.ch.rstrip('N') == bch]
+        if clash: o['issues'].append(('block', '%s %s already used on pin %s' % (tim, bch, clash[0].pin)))
         if tim in softserial_timers: o['issues'].append(('warn', '%s used by softserial' % tim))
         if ch.endswith('N'): o['issues'].append(('info', 'complementary (N) channel'))
         if pin in adc_pins: o['issues'].append(('block', 'pin is an ADC channel'))
@@ -203,7 +194,7 @@ def analyze_pin(p, act, db, softserial_pins, softserial_timers, other_pin_users,
     sev = {'block': 3, 'warn': 1, 'info': 0}
     def score(o):
         if not o['usable']: return 1000
-        s = sum(sev[k] for k, _ in o['issues']) * 10 + (50 + 5 * len(o.get('frees', []) + o.get('disables', [])) if (o.get('frees') or o.get('disables')) else 0)
+        s = sum(sev[k] for k, _ in o['issues']) * 10
         tim = o['timch'].split('_')[0]
         if not any(e.tim == tim for e in act): s -= 1
         return s
@@ -276,7 +267,6 @@ def summarize(root):
     print(stats)
 
 
-FREED_MODE = 'servo'
 TAG = 'INAV Servo Support Assistant'
 
 def find_close(lines):
@@ -315,16 +305,6 @@ def make_plan(t, choices):
             tim, ch = o['timch'].split('_', 1)
             call = 'DEF_TIM(%s, %s, %s,' % (tim, ch, pin)
             new.append('    ' + call.ljust(26) + ' TIM_USE_SERVO, 0, 0), // %s pad -> servo (%s)' % (label, TAG)); added += 1
-    dis = set(); conv = set()
-    for (n, role, pin, o, mode) in choices:
-        dis |= {e.line_no for e in o.get('disables', [])}
-        conv |= {e.line_no for e in o.get('frees', [])}
-    conv -= dis
-    if FREED_MODE == 'disabled': dis |= conv; conv = set()
-    for ln in sorted(conv):
-        c[ln] = upgrade_line(c[ln], 'motor freed ->', ('TIM_USE_MOTOR', 'TIM_USE_OUTPUT_AUTO'))
-    for ln in sorted(dis):
-        c[ln] = '// ' + c[ln] + '    // disabled: timer freed for servo pad (%s)' % TAG
     if new:
         cl = find_close(c)
         i = cl - 1
@@ -372,17 +352,13 @@ def patch_all(root, out, led_mode='shared'):
         t = parse_target(p)
         if not t['mcus'] or t['mcus'][0][0] not in FAMILIES: continue
         us = analyze(t, ChipDB(root, t['mcus'][0][0]))
-        choices = []; used = set(); lost = set()
-        motor_count = len([e for e in t['timers'] if e.active and e.has('TIM_USE_MOTOR')])
+        choices = []; used = set()
         for u in us:
             for pp in u['pins']:
                 b = pp['best']
                 if not b: continue
                 key = b['timch'].rstrip('N')
                 if key in used: continue
-                taken = {e.line_no for e in b.get('frees', []) + b.get('disables', [])}
-                if motor_count - len(lost | taken) < MIN_MOTORS: continue
-                lost |= taken
                 used.add(key)
                 choices.append((u['n'], pp['role'], pp['pin'], b, led_mode if u['n'] == 'LED' else ('dedicated' if u['n'] == 1 else 'shared')))
         if not choices: continue
@@ -408,7 +384,6 @@ def detail(root, name):
                 print('       %-14s %-12s %s' % (o['timch'], o['kind'], o['issues']))
 
 if __name__ == '__main__':
-    if len(sys.argv) > 5: FREED_MODE = sys.argv[5]
     if len(sys.argv) > 3 and sys.argv[2] == '--patch-all': patch_all(sys.argv[1], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else 'shared')
     elif len(sys.argv) > 2: detail(sys.argv[1], sys.argv[2])
     else: summarize(sys.argv[1])
