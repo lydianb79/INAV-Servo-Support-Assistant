@@ -219,3 +219,91 @@ struct MotorStrip: View {
         }
     }
 }
+
+/// Default port settings (config.c / target.h) that point at a UART being converted, and what to do with them.
+struct PortReferencesBox: View {
+    @EnvironmentObject var state: AppState
+    let uart: Int
+    let mode: UartMode
+
+    var body: some View {
+        let refs = state.references(forUART: uart)
+        let targets = state.replacementUARTs(excluding: uart)
+        let hasConfigC = refs.contains { $0.isUnsafeIfRemoved }
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Default settings that use UART\(uart)", systemImage: "gearshape.2")
+                .font(.caption.weight(.semibold))
+            ForEach(refs) { r in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: r.file == .configC ? "doc.text" : "number")
+                        .foregroundColor(.secondary)
+                    Text("\(r.location): \(r.functionLabel)")
+                        .font(.caption.monospaced())
+                }
+                .help(r.text)
+            }
+            HStack {
+                Picker("", selection: Binding(get: { state.refActionFor(uart) },
+                                              set: { state.refAction[uart] = $0 })) {
+                    ForEach(targets, id: \.self) { m in
+                        Text("Move to UART\(m)").tag(ReferenceAction.moveTo(m))
+                    }
+                    Text("Remove (comment out)").tag(ReferenceAction.remove)
+                    if mode == .shared {
+                        Text("Keep unchanged").tag(ReferenceAction.keep)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 240)
+                if state.refAction[uart] == nil {
+                    Text("suggested from Remaining serial ports")
+                        .font(.caption2).foregroundColor(.secondary)
+                }
+            }
+            Text(explanation(hasConfigC: hasConfigC))
+                .font(.caption).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.08)))
+    }
+
+    private func explanation(hasConfigC: Bool) -> String {
+        if mode == .dedicated {
+            return hasConfigC
+                ? "Dedicated mode removes UART\(uart). config.c must not configure it any more – inav would write outside the serial port table (portConfigs[-1]) and the default would be lost."
+                : "Dedicated mode removes UART\(uart); the default should point to a port that still exists."
+        }
+        return "In shared mode a default function on UART\(uart) switches its servo outputs off until the function is removed in the Ports tab."
+    }
+}
+
+/// Paste-ready CLI commands for after flashing.
+struct CLISnippetBox: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("After flashing – CLI commands", systemImage: "terminal").font(.headline)
+                    Spacer()
+                    Button { state.copyCLI() } label: { Label("Copy", systemImage: "doc.on.doc") }
+                }
+                ScrollView(.horizontal) {
+                    Text(state.cliSnippet)
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                Text("Paste into the CLI tab of the inav configurator after flashing. The serial lines replace all functions of those ports – check them against your wiring first.")
+                    .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(4)
+        }
+    }
+}

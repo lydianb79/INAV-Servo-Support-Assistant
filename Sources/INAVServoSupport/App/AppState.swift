@@ -22,6 +22,8 @@ final class AppState: ObservableObject {
     @Published var pinEnabled: [String: Bool] = [:]
     @Published var pinOption: [String: String] = [:]
     @Published var padMode: [String: UartMode] = [:]   // keyed by PadGroup.id
+    @Published var portRefs: [PortReference] = []
+    @Published var refAction: [Int: ReferenceAction] = [:]   // UART number -> action chosen by the user
     @Published var hoveredPin: String?
 
     // Peripheral planning
@@ -270,6 +272,8 @@ final class AppState: ObservableObject {
         pinEnabled = [:]
         pinOption = [:]
         padMode = [:]
+        portRefs = []
+        refAction = [:]
         guard let root = inavRoot, let name = selectedTargetName else { return }
         do {
             let target = try TargetParser.parse(root: root, name: name)
@@ -286,6 +290,7 @@ final class AppState: ObservableObject {
                     if let b = p.best { pinOption[p.id] = b.id }
                 }
             }
+            portRefs = PortReferences.find(in: target)
             analysis = a
         } catch {
             loadError = error.localizedDescription
@@ -341,8 +346,15 @@ final class AppState: ObservableObject {
             if u.requiresDedicated && padMode[u.id] == .shared {
                 issues.append(Issue(severity: .warning, text: "UART1 in shared mode: inav does not skip timer outputs on UART1 pads – serial and servo would fight for the pins."))
             }
-            if u.isDefaultReceiver {
-                issues.append(Issue(severity: .warning, text: "\(u.name) is the default receiver port – reassign the receiver in the Ports tab."))
+            if let n = u.kind.uartNumber {
+                let refs = references(forUART: n)
+                if !refs.isEmpty && refActionFor(n) == .keep {
+                    if padMode[u.id] == .dedicated && refs.contains(where: { $0.isUnsafeIfRemoved }) {
+                        issues.append(Issue(severity: .blocker, text: "config.c still configures \(u.name), which dedicated mode removes – inav would write outside the port table (portConfigs[-1]). Move or remove those lines."))
+                    } else if padMode[u.id] != .dedicated {
+                        issues.append(Issue(severity: .warning, text: "\(u.name) gets a default function (\(refs.map { $0.functionLabel }.joined(separator: ", "))) – its servo outputs stay off until that function is removed in the Ports tab."))
+                    }
+                }
             }
             if u.kind.isLED && padMode[u.id] == .shared && a.ledInDefaultFeatures {
                 issues.append(Issue(severity: .warning, text: "LED pad in shared mode: FEATURE_LED_STRIP is on by default – disable LED_STRIP in the configurator to use the servo."))
@@ -353,8 +365,132 @@ final class AppState: ObservableObject {
 
     var plan: Result<PatchPlan, Error> {
         guard let a = analysis else { return .failure(PatchError.nothingSelected) }
-        do { return .success(try Patcher.makePlan(target: a.target, choices: choices)) }
+        do {
+            return .success(try Patcher.makePlan(target: a.target, choices: choices,
+                                                 references: selectedReferences, actions: effectiveRefActions))
+        }
         catch { return .failure(error) }
+    }
+
+    // MARK: - Port references (config.c / target.h defaults)
+
+    /// UARTs that have at least one pad selected as servo.
+    var selectedUARTs: Set<Int> {
+        Set(choices.compactMap { $0.pin.group.uartNumber })
+    }
+
+    func references(forUART n: Int) -> [PortReference] {
+        portRefs.filter { $0.uart == n }
+    }
+
+    /// References of UARTs that are being converted.
+    var selectedReferences: [PortReference] {
+        let sel = selectedUARTs
+        return portRefs.filter { sel.contains($0.uart) }
+    }
+
+    /// Hardware UARTs that stay free (not selected) and have TX + RX – possible new homes for moved settings.
+    func replacementUARTs(excluding n: Int) -> [Int] {
+        guard let plan = portPlan else { return [] }
+        return plan.ports.filter { !$0.isSoftSerial && $0.state.isFree && $0.tx != nil && $0.rx != nil && $0.tx != $0.rx }
+            .compactMap { Int($0.id.dropFirst(4)) }
+            .filter { $0 != n }
+    }
+
+    /// Default: follow the port planner for receiver / GPS / VTX, otherwise first free UART, otherwise remove.
+    func defaultRefAction(forUART n: Int) -> ReferenceAction {
+        let refs = references(forUART: n)
+        let candidates = replacementUARTs(excluding: n)
+        if let fn = PortReferences.mainFunction(refs), let plan = portPlan {
+            let peripheral: Peripheral?
+            switch fn {
+            case "RX_SERIAL": peripheral = receiverChoice.peripheral
+            case "GPS": peripheral = wantGPS ? .gps : nil
+            case "VTX_SMARTAUDIO", "VTX_TRAMP": peripheral = .vtxSmartAudio
+            case "MSP_OSD": peripheral = .vtxMSP
+            default: peripheral = nil
+            }
+            if let p = peripheral, let port = plan.assignment[p], port.hasPrefix("UART"),
+               let m = Int(port.dropFirst(4)), m != n {
+                return .moveTo(m)
+            }
+        }
+        if let first = candidates.first { return .moveTo(first) }
+        return .remove
+    }
+
+    func refActionFor(_ n: Int) -> ReferenceAction {
+        refAction[n] ?? defaultRefAction(forUART: n)
+    }
+
+    var effectiveRefActions: [Int: ReferenceAction] {
+        var d = [Int: ReferenceAction]()
+        for n in selectedUARTs where !references(forUART: n).isEmpty { d[n] = refActionFor(n) }
+        return d
+    }
+
+    // MARK: - After-flash CLI
+
+    var cliSnippet: String {
+        guard let a = analysis else { return "" }
+        var lines = ["# INAV Servo Support Assistant – CLI after flashing \(a.target.name)", "# paste into the configurator's CLI tab"]
+        let selected = choices
+        if !selected.isEmpty {
+            lines.append("")
+            lines.append("# servo pads")
+            for c in selected {
+                lines.append("#   \(c.pin.pin) (\(c.pin.label)) -> \(c.option.channel.timer) \(c.option.channel.channel)")
+            }
+            lines.append("feature PWM_OUTPUT_ENABLE")
+            let ledInvolved = selected.contains { $0.pin.group.isLED && $0.mode == .shared }
+                || selected.contains { c in c.option.issues.contains { $0.text.contains("LED strip") } }
+            if ledInvolved { lines.append("feature -LED_STRIP          # LED strip timer is used for a servo") }
+        }
+        // shared UARTs must not have any function, otherwise inav switches their servo outputs off
+        let sharedUARTs = Set(selected.filter { $0.mode == .shared }.compactMap { $0.pin.group.uartNumber })
+        if !sharedUARTs.isEmpty {
+            lines.append("")
+            lines.append("# UARTs used as servo pads in shared mode: no function assigned")
+            for n in sharedUARTs.sorted() { lines.append("serial \(n - 1) 0                # UART\(n)") }
+        }
+        if let plan = portPlan, !plan.assignment.isEmpty {
+            lines.append("")
+            lines.append("# peripherals on the remaining ports (serial <port id> <function mask>)")
+            for p in Peripheral.allCases {
+                guard let portID = plan.assignment[p], let id = Self.cliPortID(portID) else { continue }
+                let (mask, name) = Self.functionMask(for: p)
+                lines.append("serial \(id) \(mask)".padded(to: 26) + "# \(portID): \(name)")
+            }
+            if let rx = receiverChoice.peripheral, plan.assignment[rx] != nil {
+                lines.append("set receiver_type = SERIAL")
+                lines.append("set serialrx_provider = \(receiverChoice == .sbus ? "SBUS" : "CRSF")")
+            }
+        }
+        lines.append("")
+        lines.append("save")
+        return lines.joined(separator: "\n")
+    }
+
+    static func cliPortID(_ portID: String) -> Int? {
+        if portID.hasPrefix("UART"), let n = Int(portID.dropFirst(4)) { return n - 1 }
+        if portID.hasPrefix("SOFTSERIAL"), let n = Int(portID.dropFirst(10)) { return 29 + n }
+        return nil
+    }
+
+    /// inav serialPortFunction_e bit values (io/serial.h)
+    static func functionMask(for p: Peripheral) -> (Int, String) {
+        switch p {
+        case .receiverCRSF, .receiverSBUS: return (1 << 6, "serial receiver")
+        case .gps: return (1 << 1, "GPS")
+        case .vtxSmartAudio: return (1 << 11, "VTX SmartAudio (Tramp: use \(1 << 12))")
+        case .vtxMSP: return (1 << 25, "MSP DisplayPort")
+        }
+    }
+
+    func copyCLI() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(cliSnippet, forType: .string)
+        statusMessage = "CLI commands copied to the clipboard."
     }
 
     // MARK: - Apply / revert
@@ -366,7 +502,7 @@ final class AppState: ObservableObject {
     var hasBackup: Bool {
         guard let t = analysis?.target else { return false }
         let fm = FileManager.default
-        return fm.fileExists(atPath: backupURL(for: t.cURL).path) || fm.fileExists(atPath: backupURL(for: t.hURL).path)
+        return [t.cURL, t.hURL, t.configURL].contains { fm.fileExists(atPath: backupURL(for: $0).path) }
     }
 
     func apply() {
@@ -377,12 +513,15 @@ final class AppState: ObservableObject {
         let t = plan.target
         let fm = FileManager.default
         do {
-            for url in [t.cURL, t.hURL] {
+            var files = [t.cURL, t.hURL]
+            if plan.configChanged { files.append(t.configURL) }
+            for url in files {
                 let b = backupURL(for: url)
                 if !fm.fileExists(atPath: b.path) { try fm.copyItem(at: url, to: b) }
             }
             if plan.cChanged { try plan.newC.write(to: t.cURL, atomically: true, encoding: .utf8) }
             if plan.hChanged { try plan.newH.write(to: t.hURL, atomically: true, encoding: .utf8) }
+            if plan.configChanged, let cfg = plan.newConfig { try cfg.write(to: t.configURL, atomically: true, encoding: .utf8) }
             statusMessage = "Applied \(choices.count) servo pad(s) to \(t.name). Backups: target.c.servo-backup / target.h.servo-backup"
             showDiffSheet = false
             loadSelectedTarget()
@@ -395,7 +534,7 @@ final class AppState: ObservableObject {
         guard let t = analysis?.target else { return }
         let fm = FileManager.default
         do {
-            for url in [t.cURL, t.hURL] {
+            for url in [t.cURL, t.hURL, t.configURL] {
                 let b = backupURL(for: url)
                 if fm.fileExists(atPath: b.path) {
                     let s = try String(contentsOf: b, encoding: .utf8)

@@ -11,11 +11,13 @@ struct PatchPlan {
     let target: TargetInfo
     let newC: String
     let newH: String
+    let newConfig: String?
     let changes: [String]
     let warnings: [Issue]
     var cChanged: Bool { newC != target.cText }
     var hChanged: Bool { newH != target.hText }
-    var hasChanges: Bool { cChanged || hChanged }
+    var configChanged: Bool { newConfig != nil && newConfig != target.configText }
+    var hasChanges: Bool { cChanged || hChanged || configChanged }
 }
 
 enum PatchError: LocalizedError {
@@ -37,7 +39,8 @@ enum Patcher {
     /// inav only starts servo (and motor) timer outputs when this feature is on; no target enables it by default.
     static let outputEnableNote = "After flashing: \"Enable motor and servo output\" must be on (configurator, or CLI: feature PWM_OUTPUT_ENABLE + save). Otherwise servo outputs aren't started."
 
-    static func makePlan(target: TargetInfo, choices: [ServoChoice]) throws -> PatchPlan {
+    static func makePlan(target: TargetInfo, choices: [ServoChoice],
+                         references: [PortReference] = [], actions: [Int: ReferenceAction] = [:]) throws -> PatchPlan {
         guard !choices.isEmpty else { throw PatchError.nothingSelected }
         if let bad = choices.first(where: { !$0.option.isUsable }) {
             throw PatchError.blocked("\(bad.pin.pin) → \(bad.option.channel.id) has blocking issues.")
@@ -124,7 +127,7 @@ enum Patcher {
             if disabled > 0 {
                 changes.append("target.h: disabled UART\(n) (\(disabled) define line\(disabled == 1 ? "" : "s") commented out).")
             }
-            if target.firstValue("SERIALRX_UART") == "SERIAL_PORT_USART\(n)" {
+            if target.firstValue("SERIALRX_UART") == "SERIAL_PORT_USART\(n)" && (actions[n] ?? .keep) == .keep {
                 warnings.append(Issue(severity: .warning, text: "SERIALRX_UART points to the disabled UART\(n). Change the default receiver port in target.h or in the configurator."))
             }
             for k in Analyzer.softSerialDefines {
@@ -204,9 +207,46 @@ enum Patcher {
 
         warnings.append(Issue(severity: .info, text: outputEnableNote))
 
+        // ---------------- default port settings (config.c / target.h) ----------------
+        var configLines = target.configText?.sourceLines
+        for ref in references {
+            guard let action = actions[ref.uart] else { continue }
+            let pattern = "SERIAL_PORT_USART\(ref.uart)\\b"
+            switch action {
+            case .keep:
+                continue
+            case .moveTo(let m):
+                let note = "  // moved from UART\(ref.uart) – its pads are servo outputs (\(tag))"
+                if ref.file == .configC, var cl = configLines, ref.line < cl.count {
+                    cl[ref.line] = cl[ref.line].replacingOccurrences(of: pattern, with: "SERIAL_PORT_USART\(m)", options: .regularExpression) + note
+                    configLines = cl
+                } else if ref.file == .targetH, ref.line < hLines.count {
+                    hLines[ref.line] = hLines[ref.line].replacingOccurrences(of: pattern, with: "SERIAL_PORT_USART\(m)", options: .regularExpression) + note
+                }
+                changes.append("\(ref.location): \(ref.functionLabel) moved from UART\(ref.uart) to UART\(m).")
+                if let other = (target.configText ?? "").sourceLines.enumerated().first(where: { item in
+                    item.element.codePart.range(of: "SERIAL_PORT_USART\(m)\\b.*functionMask", options: .regularExpression) != nil
+                }) {
+                    warnings.append(Issue(severity: .warning, text: "config.c line \(other.offset + 1) already gives UART\(m) a function – the moved setting replaces or combines with it. Check the Ports tab after flashing."))
+                }
+            case .remove:
+                let note = "    // removed: UART\(ref.uart) pads are servo outputs (\(tag))"
+                if ref.file == .configC, var cl = configLines, ref.line < cl.count {
+                    cl[ref.line] = "// " + cl[ref.line] + note
+                    configLines = cl
+                } else if ref.file == .targetH, ref.line < hLines.count, !hLines[ref.line].trimmed.hasPrefix("//") {
+                    hLines[ref.line] = "// " + hLines[ref.line] + note
+                }
+                changes.append("\(ref.location): \(ref.functionLabel) on UART\(ref.uart) removed.")
+            }
+        }
+
         let newC = cLines.joined(separator: "\n")
         let newH = hLines.joined(separator: "\n")
-        return PatchPlan(target: target, newC: newC, newH: newH, changes: changes, warnings: warnings)
+        let newConfig = configLines?.joined(separator: "\n")
+        var seen = Set<Issue>()
+        warnings = warnings.filter { seen.insert($0).inserted }
+        return PatchPlan(target: target, newC: newC, newH: newH, newConfig: newConfig, changes: changes, warnings: warnings)
     }
 
     /// Adds TIM_USE_SERVO to the usage argument of the DEF_TIM call on `line`

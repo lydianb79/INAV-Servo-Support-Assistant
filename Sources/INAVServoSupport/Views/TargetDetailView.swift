@@ -18,6 +18,7 @@ struct TargetDetailView: View {
                     }
                     padSection
                     PortPlanSection(analysis: analysis)
+                    CLISnippetBox()
                     existingTimersSection
                 }
                 .padding(20)
@@ -179,6 +180,9 @@ struct PadGroupCard: View {
                         .pickerStyle(.segmented)
                         .labelsHidden()
                         OutcomeBox(group: uart, mode: mode)
+                        if let n = uart.kind.uartNumber, !state.references(forUART: n).isEmpty {
+                            PortReferencesBox(uart: n, mode: mode)
+                        }
                     }
                 } else if uart.isCandidate {
                     Text(uart.kind.isLED

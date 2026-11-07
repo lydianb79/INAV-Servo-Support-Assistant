@@ -62,6 +62,23 @@ so the separate `metal` compiler from full Xcode is **not** needed.
    compiler is downloaded only once, however often the inav folder is re-cloned. *File → Show ARM Toolchain
    Cache in Finder* opens it.
 
+## Default port settings (config.c / target.h)
+
+Many targets set default port functions in code – `SERIALRX_UART SERIAL_PORT_USART6` in `target.h`, or lines like
+`serialConfigMutable()->portConfigs[findSerialPortIndexByIdentifier(SERIAL_PORT_USART6)].functionMask = FUNCTION_RX_SERIAL;`
+in `config.c`. When a UART with such settings is converted, its card shows them and offers
+**Move to UARTn** (suggested from *Remaining serial ports*), **Remove** or – in shared mode – **Keep**.
+In dedicated mode a `config.c` reference must not stay: the removed port makes `findSerialPortIndexByIdentifier()`
+return −1 and inav writes to `portConfigs[-1]`, so the receiver default is lost and memory is overwritten.
+`config.c` is backed up and shown in the review screen like `target.c` / `target.h`.
+
+## After flashing – CLI commands
+
+The *After flashing* box (and the CLI tab in *Review & Apply*) generates paste-ready commands:
+`feature PWM_OUTPUT_ENABLE`, `feature -LED_STRIP` when an LED timer is used, `serial <id> 0` for UARTs used as
+servo pads in shared mode, `serial <id> <mask>` for the receiver / GPS / VTX ports from *Remaining serial ports*,
+`set receiver_type` / `serialrx_provider`, and `save`.
+
 ## What gets changed
 
 `target.c` – new entries are appended at the end of `timerHardware[]` so existing output

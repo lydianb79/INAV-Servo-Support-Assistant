@@ -70,11 +70,14 @@ struct TargetInfo {
     let cText: String
     let defines: [String: [DefineEntry]]
     let timers: [TimerEntry]
+    /// Optional config.c (target defaults set in code) – nil when the target has none.
+    let configText: String?
 
     var mcu: MCUInfo? { mcuFunction.flatMap { MCUInfo.all[$0] } }
     var activeTimers: [TimerEntry] { timers.filter { $0.active } }
     var hURL: URL { directory.appendingPathComponent("target.h") }
     var cURL: URL { directory.appendingPathComponent("target.c") }
+    var configURL: URL { directory.appendingPathComponent("config.c") }
 
     func firstValue(_ name: String) -> String? { defines[name]?.first?.value }
     func values(_ name: String) -> [String] { defines[name]?.map { $0.value } ?? [] }
@@ -125,8 +128,10 @@ enum TargetParser {
         let h = try read("target.h")
         let c = try read("target.c")
         let (fn, variants) = parseCMake(cmake)
+        let config = try? String(contentsOf: d.appendingPathComponent("config.c"), encoding: .utf8)
         return TargetInfo(name: name, directory: d, mcuFunction: fn, variants: variants,
-                          hText: h, cText: c, defines: parseDefines(h), timers: parseTimers(c))
+                          hText: h, cText: c, defines: parseDefines(h), timers: parseTimers(c),
+                          configText: config)
     }
 
     static func parseDefines(_ text: String) -> [String: [DefineEntry]] {

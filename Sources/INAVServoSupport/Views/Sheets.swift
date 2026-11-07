@@ -194,9 +194,13 @@ struct DiffSheet: View {
                     Picker("", selection: $file) {
                         Text("target.c").tag(0)
                         Text("target.h").tag(1)
+                        if plan.target.configText != nil {
+                            Text("config.c").tag(3)
+                        }
                         Text("Summary").tag(2)
+                        Text("CLI").tag(4)
                     }
-                    .pickerStyle(.segmented).frame(width: 280)
+                    .pickerStyle(.segmented).frame(width: 420)
                 }
                 Group {
                     if file == 2 {
@@ -204,11 +208,21 @@ struct DiffSheet: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 ForEach(plan.changes, id: \.self) { c in Label(c, systemImage: "pencil").font(.callout) }
                                 ForEach(plan.warnings) { w in IssueRow(issue: w) }
-                                Text("Backups are written next to the originals as target.c.servo-backup / target.h.servo-backup (only if none exist yet).")
+                                Text("Backups are written next to the originals as target.c / target.h / config.c .servo-backup (only if none exist yet).")
                                     .font(.caption).foregroundColor(.secondary).padding(.top, 8)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading).padding(10)
                         }
+                    } else if file == 4 {
+                        ScrollView([.vertical, .horizontal]) {
+                            Text(state.cliSnippet)
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                        }
+                    } else if file == 3 {
+                        DiffTextView(lines: LineDiff.diff(old: plan.target.configText ?? "", new: plan.newConfig ?? ""))
                     } else {
                         DiffTextView(lines: file == 0 ? LineDiff.diff(old: plan.target.cText, new: plan.newC)
                                                       : LineDiff.diff(old: plan.target.hText, new: plan.newH))
@@ -217,8 +231,11 @@ struct DiffSheet: View {
                 .background(Color(nsColor: .textBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 HStack {
-                    Text("\(plan.cChanged ? "target.c" : "")\(plan.cChanged && plan.hChanged ? " and " : "")\(plan.hChanged ? "target.h" : "") will be modified.")
+                    Text(modifiedFiles(plan))
                         .font(.caption).foregroundColor(.secondary)
+                    if file == 4 {
+                        Button { state.copyCLI() } label: { Label("Copy CLI", systemImage: "doc.on.doc") }
+                    }
                     Spacer()
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                     Button("Apply to Source") { state.apply() }
@@ -230,6 +247,16 @@ struct DiffSheet: View {
         }
         .padding(16)
         .frame(width: 900, height: 620)
+    }
+}
+
+extension DiffSheet {
+    func modifiedFiles(_ plan: PatchPlan) -> String {
+        var files = [String]()
+        if plan.cChanged { files.append("target.c") }
+        if plan.hChanged { files.append("target.h") }
+        if plan.configChanged { files.append("config.c") }
+        return files.isEmpty ? "No file changes." : files.joined(separator: ", ") + " will be modified."
     }
 }
 
