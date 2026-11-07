@@ -107,10 +107,13 @@ final class AppState: ObservableObject {
 
     /// A folder name in `parent` that does not exist yet: inav, inav-2, inav-3 …
     func uniqueFolderName(in parent: URL, base: String = "inav") -> String {
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: parent.appendingPathComponent(base).path) { return base }
+        func usable(_ name: String) -> Bool {
+            let st = cloneDestinationStatus(parent.appendingPathComponent(name))
+            return st == .free || st == .emptyFolder
+        }
+        if usable(base) { return base }
         var i = 2
-        while fm.fileExists(atPath: parent.appendingPathComponent("\(base)-\(i)").path) { i += 1 }
+        while !usable("\(base)-\(i)") { i += 1 }
         return "\(base)-\(i)"
     }
 
@@ -193,17 +196,46 @@ final class AppState: ObservableObject {
 
     // MARK: - Clone
 
+    /// What is at a clone destination. Only `.free` and `.emptyFolder` can be cloned into
+    /// (macOS' hidden .DS_Store does not count as content).
+    enum CloneDestination: Equatable {
+        case free
+        case emptyFolder
+        case inavCheckout
+        case notEmpty([String])
+        case isFile
+    }
+
+    func cloneDestinationStatus(_ dest: URL) -> CloneDestination {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: dest.path, isDirectory: &isDir) else { return .free }
+        if !isDir.boolValue { return .isFile }
+        if TargetParser.isINAVRoot(dest) { return .inavCheckout }
+        let items = ((try? fm.contentsOfDirectory(atPath: dest.path)) ?? []).filter { $0 != ".DS_Store" }
+        return items.isEmpty ? .emptyFolder : .notEmpty(items.sorted())
+    }
+
     func clone(url: String, branch: String, shallow: Bool, parent: URL, folderName: String) {
-        let dest = parent.appendingPathComponent(folderName)
-        if FileManager.default.fileExists(atPath: dest.path) {
-            if TargetParser.isINAVRoot(dest) {
-                alertMessage = "\(dest.path) already contains an inav checkout – it has been opened instead. Choose another folder name to clone a fresh copy."
-                setRoot(dest)
-                showCloneSheet = false
-                showStartSheet = false
-            } else {
-                alertMessage = "\(dest.path) already exists. Choose another folder name."
-            }
+        let name = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dest = parent.appendingPathComponent(name)
+        switch cloneDestinationStatus(dest) {
+        case .free:
+            break
+        case .emptyFolder:
+            // git refuses non-empty folders; an invisible .DS_Store would make it fail
+            try? FileManager.default.removeItem(at: dest.appendingPathComponent(".DS_Store"))
+        case .inavCheckout:
+            alertMessage = "\(dest.path) already contains an inav checkout – it has been opened instead. Choose another folder name to clone a fresh copy."
+            setRoot(dest)
+            showCloneSheet = false
+            showStartSheet = false
+            return
+        case .notEmpty(let items):
+            alertMessage = "\(dest.path) already exists and is not empty (\(items.prefix(5).joined(separator: ", "))\(items.count > 5 ? ", …" : "")). Choose another folder name."
+            return
+        case .isFile:
+            alertMessage = "A file named \(dest.path) already exists. Choose another folder name."
             return
         }
         var args = ["clone", "--progress"]

@@ -9,8 +9,15 @@ struct CloneSheet: View {
     @State private var shallow = true
     @State private var parent: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
     @State private var folderName = "inav"
-    private var destinationExists: Bool {
-        FileManager.default.fileExists(atPath: parent.appendingPathComponent(folderName).path)
+    private var destination: URL {
+        parent.appendingPathComponent(folderName.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    private var status: AppState.CloneDestination { state.cloneDestinationStatus(destination) }
+    private var canClone: Bool {
+        switch status {
+        case .free, .emptyFolder, .inavCheckout: return true
+        case .notEmpty, .isFile: return false
+        }
     }
 
     var body: some View {
@@ -26,14 +33,7 @@ struct CloneSheet: View {
                 }
                 TextField("Folder name", text: $folderName)
             }
-            if destinationExists {
-                Label("\(parent.appendingPathComponent(folderName).path) already exists – pick another folder name to clone a fresh copy.",
-                      systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundColor(.orange)
-            } else {
-                Text("Will create: \(parent.appendingPathComponent(folderName).path)")
-                    .font(.caption).foregroundColor(.secondary)
-            }
+            destinationInfo
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -41,7 +41,7 @@ struct CloneSheet: View {
                     state.clone(url: url, branch: branch, shallow: shallow, parent: parent, folderName: folderName)
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(url.isEmpty || folderName.isEmpty || state.jobRunning)
+                .disabled(url.isEmpty || folderName.trimmingCharacters(in: .whitespaces).isEmpty || state.jobRunning || !canClone)
             }
         }
         .padding(20)
@@ -49,6 +49,37 @@ struct CloneSheet: View {
         .onAppear {
             if let current = state.inavRoot { parent = current.deletingLastPathComponent() }
             folderName = state.uniqueFolderName(in: parent)
+        }
+    }
+
+    @ViewBuilder private var destinationInfo: some View {
+        switch status {
+        case .free:
+            Label("Will create \(destination.path)", systemImage: "folder.badge.plus")
+                .font(.caption).foregroundColor(.secondary)
+        case .emptyFolder:
+            Label("\(destination.path) exists and is empty – inav will be cloned into it.", systemImage: "checkmark.circle")
+                .font(.caption).foregroundColor(.green)
+        case .inavCheckout:
+            HStack {
+                Label("\(destination.path) already is an inav checkout – Clone opens it instead.", systemImage: "info.circle")
+                    .font(.caption).foregroundColor(.blue)
+                Spacer()
+                Button("Use \(state.uniqueFolderName(in: parent))") { folderName = state.uniqueFolderName(in: parent) }
+                    .controlSize(.small)
+            }
+        case .notEmpty(let items):
+            HStack {
+                Label("\(destination.path) already exists and contains \(items.count) item\(items.count == 1 ? "" : "s"): \(items.prefix(4).joined(separator: ", "))\(items.count > 4 ? ", …" : "")",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundColor(.orange)
+                Spacer()
+                Button("Use \(state.uniqueFolderName(in: parent))") { folderName = state.uniqueFolderName(in: parent) }
+                    .controlSize(.small)
+            }
+        case .isFile:
+            Label("A file named \(destination.path) exists – choose another folder name.", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption).foregroundColor(.orange)
         }
     }
 
