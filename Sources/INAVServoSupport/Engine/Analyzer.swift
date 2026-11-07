@@ -312,7 +312,7 @@ enum Analyzer {
                 options[i].disablesMotors = motorsOnTimer
             }
             if sameTimer.contains(where: { $0.has("TIM_USE_LED") }) {
-                issues.append(Issue(severity: .warning, text: "\(tc.timer) also drives the LED strip; with LED_STRIP enabled the timer is unavailable for servos."))
+                issues.append(Issue(severity: .warning, text: "\(tc.timer) also drives the LED strip – this servo only works while the LED Strip feature is switched off (configurator: Configuration tab → LED Strip, or CLI: feature -LED_STRIP)."))
             }
             if sameTimer.contains(where: { $0.has("TIM_USE_BEEPER") }) {
                 issues.append(Issue(severity: .warning, text: "\(tc.timer) also drives the PWM beeper."))
