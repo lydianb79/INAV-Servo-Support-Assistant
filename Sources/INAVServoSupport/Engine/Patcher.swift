@@ -74,6 +74,25 @@ enum Patcher {
             }
         }
 
+        // Motor outputs on a timer that is now used for a servo pad are disabled.
+        let motors = Analyzer.motorOutputs(target)
+        var disabledBy = [Int: String]()
+        for choice in choices {
+            for e in choice.option.disablesMotors where disabledBy[e.line] == nil { disabledBy[e.line] = choice.pin.label }
+        }
+        for (line, by) in disabledBy.sorted(by: { $0.key < $1.key }) where line < cLines.count {
+            let n = motors.firstIndex { $0.line == line }.map { $0 + 1 }
+            let entry = target.timers.first { $0.line == line }
+            let motorName = n.map { "motor \($0)" } ?? "motor output"
+            cLines[line] = "// " + cLines[line] + "    // disabled: \(motorName) – timer used for servo on \(by) (\(tag))"
+            changes.append("target.c line \(line + 1): disabled \(motorName) (\(entry?.pin ?? "?"), \(entry?.timerChannel.id ?? "")) – its timer now drives the servo on \(by).")
+        }
+        if !disabledBy.isEmpty {
+            let usable = motors.enumerated().filter { disabledBy[$0.element.line] == nil }
+            let list = usable.map { "\($0.offset + 1) (\($0.element.pin))" }.joined(separator: ", ")
+            warnings.append(Issue(severity: .warning, text: "Motor outputs still usable: \(list.isEmpty ? "none" : list). inav numbers the remaining motors in this order after flashing – check motor order and direction before flying."))
+        }
+
         if !newEntries.isEmpty {
             guard let closing = findTimerArrayClose(cLines) else { throw PatchError.noTimerArray }
             ensureTrailingComma(&cLines, before: closing)

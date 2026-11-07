@@ -94,6 +94,10 @@ struct OutcomeBox: View {
             }
             out.append(Line(symbol: "arrow.right.circle.fill", color: .orange,
                             text: "\(c.pin.pin) (\(c.pin.label)) → servo output on \(tc.timer) \(tc.channel)\(how)"))
+            if c.option.takesMotors, let a = state.analysis {
+                out.append(Line(symbol: "xmark.circle.fill", color: .red,
+                                text: "Disables \(Analyzer.motorLabel(c.option.disablesMotors, in: a.motorOutputs)) – \(tc.timer) can no longer drive motors."))
+            }
         }
         let target = state.analysis?.target
         switch (group.kind, mode) {
@@ -145,5 +149,69 @@ struct OutcomeBox: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6)
             .fill((mode == .shared ? Color.blue : Color.purple).opacity(0.07)))
+    }
+}
+
+/// Shows the board's motor outputs (1, 2, 3, 4 …) and which of them stay usable with the current selection.
+struct MotorStrip: View {
+    @EnvironmentObject var state: AppState
+    let analysis: TargetAnalysis
+
+    private var motors: [TimerEntry] { analysis.motorOutputs }
+
+    /// motor line -> label of the pad whose timer disables it
+    private var disabledBy: [Int: String] {
+        var d = [Int: String]()
+        for c in state.choices {
+            for e in c.option.disablesMotors where d[e.line] == nil { d[e.line] = c.pin.label }
+        }
+        return d
+    }
+
+    private var usable: [Int] {
+        let d = disabledBy
+        return motors.enumerated().filter { d[$0.element.line] == nil }.map { $0.offset + 1 }
+    }
+
+    private var summary: String {
+        if usable.count == motors.count { return "all \(motors.count) usable" }
+        let list = usable.isEmpty ? "none" : usable.map(String.init).joined(separator: ", ")
+        return "still usable: \(list) of \(motors.count)"
+    }
+
+    var body: some View {
+        let disabledBy = self.disabledBy
+        let usable = self.usable
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Label("Motor outputs", systemImage: "rotate.3d").font(.headline)
+                    Spacer()
+                    Text(summary)
+                        .font(.callout.weight(.semibold))
+                        .foregroundColor(usable.isEmpty ? .red : (usable.count == motors.count ? .green : .orange))
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 6, alignment: .leading)], alignment: .leading, spacing: 6) {
+                    ForEach(Array(motors.enumerated()), id: \.offset) { item in
+                        let by = disabledBy[item.element.line]
+                        HStack(spacing: 5) {
+                            Image(systemName: by == nil ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(by == nil ? .green : .red)
+                            Text("Motor \(item.offset + 1)").font(.caption.weight(.bold))
+                            Text("\(item.element.pin) · \(item.element.timer)")
+                                .font(.caption.monospaced())
+                                .strikethrough(by != nil)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill((by == nil ? Color.green : Color.red).opacity(0.12)))
+                        .help(by.map { "Disabled – its timer drives the servo on \($0)" } ?? "Usable as motor output")
+                    }
+                }
+                Text("A UART pad on a timer that drives motors can still be selected: inav cannot run motors and servos on the same timer, so the motor outputs on that timer are disabled. Options that keep all motors are preferred.")
+                    .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(4)
+        }
     }
 }

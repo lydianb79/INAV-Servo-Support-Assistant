@@ -176,15 +176,17 @@ def analyze_pin(p, act, db, softserial_pins, softserial_timers, other_pin_users,
         if not o['usable']: continue
         tim, ch = o['timch'].split('_', 1)
         same_tim = [e for e in act if e.tim == tim and e.pin != pin]
-        motors = [e for e in same_tim if e.has('TIM_USE_MOTOR') and not e.has('TIM_USE_SERVO')]
-        autos = [e for e in same_tim if e.has('TIM_USE_MOTOR') and e.has('TIM_USE_SERVO')]
-        if motors: o['issues'].append(('block', '%s drives motor outputs (%s); motors and servos cannot share a timer' % (tim, ','.join(e.pin for e in motors))))
-        if autos: o['issues'].append(('warn', '%s shared with outputs %s - they must all be servos' % (tim, ','.join(e.pin for e in autos))))
+        all_motors = [e for e in act if e.has('TIM_USE_MOTOR')]
+        motors_on = [e for e in same_tim if e.has('TIM_USE_MOTOR')]
+        o['disables'] = motors_on
+        if motors_on:
+            nums = [all_motors.index(e) + 1 for e in motors_on]
+            o['issues'].append(('warn', 'disables motor %s (%s) on %s; %d of %d remain' % (','.join(map(str, nums)), ','.join(e.pin for e in motors_on), tim, len(all_motors) - len(motors_on), len(all_motors))))
         if any(e.has('TIM_USE_LED') for e in same_tim): o['issues'].append(('warn', '%s also drives LED strip' % tim))
         if any(e.has('TIM_USE_BEEPER') for e in same_tim): o['issues'].append(('warn', '%s also drives beeper' % tim))
         if any(e.has('TIM_USE_PPM') or e.has('TIM_USE_PWM') for e in same_tim): o['issues'].append(('warn', '%s used for PPM/PWM input' % tim))
         bch = ch.rstrip('N')
-        clash = [e for e in same_tim if e.ch.rstrip('N') == bch]
+        clash = [e for e in same_tim if e.ch.rstrip('N') == bch and not e.has('TIM_USE_MOTOR')]
         if clash: o['issues'].append(('block', '%s %s already used on pin %s' % (tim, bch, clash[0].pin)))
         if tim in softserial_timers: o['issues'].append(('warn', '%s used by softserial' % tim))
         if ch.endswith('N'): o['issues'].append(('info', 'complementary (N) channel'))
@@ -194,7 +196,7 @@ def analyze_pin(p, act, db, softserial_pins, softserial_timers, other_pin_users,
     sev = {'block': 3, 'warn': 1, 'info': 0}
     def score(o):
         if not o['usable']: return 1000
-        s = sum(sev[k] for k, _ in o['issues']) * 10
+        s = sum(sev[k] for k, _ in o['issues']) * 10 + ((100 + 10 * len(o['disables'])) if o.get('disables') else 0)
         tim = o['timch'].split('_')[0]
         if not any(e.tim == tim for e in act): s -= 1
         return s
@@ -305,6 +307,11 @@ def make_plan(t, choices):
             tim, ch = o['timch'].split('_', 1)
             call = 'DEF_TIM(%s, %s, %s,' % (tim, ch, pin)
             new.append('    ' + call.ljust(26) + ' TIM_USE_SERVO, 0, 0), // %s pad -> servo (%s)' % (label, TAG)); added += 1
+    dis = {}
+    for (n, role, pin, o, mode) in choices:
+        for e in o.get('disables', []): dis.setdefault(e.line_no, pin)
+    for ln in sorted(dis):
+        c[ln] = '// ' + c[ln] + '    // disabled: motor - timer used for servo on %s (%s)' % (dis[ln], TAG)
     if new:
         cl = find_close(c)
         i = cl - 1
@@ -352,13 +359,17 @@ def patch_all(root, out, led_mode='shared'):
         t = parse_target(p)
         if not t['mcus'] or t['mcus'][0][0] not in FAMILIES: continue
         us = analyze(t, ChipDB(root, t['mcus'][0][0]))
-        choices = []; used = set()
+        choices = []; used = set(); lost = set()
+        motor_count = len([e for e in t['timers'] if e.active and e.has('TIM_USE_MOTOR')])
         for u in us:
             for pp in u['pins']:
                 b = pp['best']
                 if not b: continue
                 key = b['timch'].rstrip('N')
                 if key in used: continue
+                taken = {e.line_no for e in b.get('disables', [])}
+                if taken and len(lost | taken) >= motor_count: continue
+                lost |= taken
                 used.add(key)
                 choices.append((u['n'], pp['role'], pp['pin'], b, led_mode if u['n'] == 'LED' else ('dedicated' if u['n'] == 1 else 'shared')))
         if not choices: continue

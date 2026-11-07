@@ -95,10 +95,13 @@ but inav's tables lack are listed as rejected with the reason.
 
 Conflict checks (blocking ✖ / warning ⚠):
 
-* ✖ timer drives motor-only outputs (motors and servos cannot share a timer in inav)
+* ⚠ timer drives motor outputs (motor-only or auto motor/servo) – motors and servos cannot share a timer in inav,
+  so using that pad **disables those motor outputs** (their `DEF_TIM` lines are commented out). The *Motor outputs*
+  strip shows motors 1, 2, 3, 4 … and which of them are still usable; options that keep all motors are preferred,
+  and a selection that would disable every motor output is blocked
 * ✖ the same timer channel is already used on another pin, or selected twice
 * ✖ pin is an ADC channel
-* ⚠ timer shared with auto (motor/servo) outputs, LED strip, beeper, PPM/PWM input or softserial
+* ⚠ timer shared with the LED strip, beeper, PPM/PWM input or softserial
 * ⚠ pin referenced by other defines (I2C, BIND_PIN, …), default receiver UART, UART1 in shared mode
 * ℹ complementary (CHxN) channel
 

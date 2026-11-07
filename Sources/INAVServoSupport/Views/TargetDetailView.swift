@@ -71,6 +71,9 @@ struct TargetDetailView: View {
             Text("Candidates are pads whose GPIO can be routed to a timer channel that inav can drive without conflicting with motors or other timer users.")
                 .font(.callout).foregroundColor(.secondary)
             HowItWorksBox()
+            if !analysis.motorOutputs.isEmpty {
+                MotorStrip(analysis: analysis)
+            }
             let ordered = analysis.groups.sorted { ($0.isCandidate ? 0 : 1, $0.kind.sortKey) < ($1.isCandidate ? 0 : 1, $1.kind.sortKey) }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 420), spacing: 14, alignment: .top)], alignment: .leading, spacing: 14) {
                 ForEach(ordered) { g in
@@ -249,7 +252,7 @@ struct PinRow: View {
                     Picker("", selection: Binding(get: { state.pinOption[pin.id] ?? pin.best?.id ?? "" },
                                                   set: { state.pinOption[pin.id] = $0 })) {
                         ForEach(pin.options.filter { $0.isUsable }) { o in
-                            Text("\(o.channel.timer) \(o.channel.channel)  ·  \(shortKind(o.kind))").tag(o.id)
+                            Text(optionLabel(o)).tag(o.id)
                         }
                     }
                     .labelsHidden()
@@ -281,6 +284,15 @@ struct PinRow: View {
                 .font(.caption)
             }
         }
+    }
+
+    private func optionLabel(_ o: TimerOption) -> String {
+        var label = "\(o.channel.timer) \(o.channel.channel)  ·  \(shortKind(o.kind))"
+        if o.takesMotors, let a = state.analysis {
+            let nums = o.disablesMotors.compactMap { a.motorNumber($0) }.map(String.init).joined(separator: ", ")
+            label += "  ·  disables motor " + nums
+        }
+        return label
     }
 
     private func shortKind(_ k: OptionKind) -> String {

@@ -64,8 +64,12 @@ struct TimerOption: Identifiable, Hashable {
     let kind: OptionKind
     let detail: String
     var issues: [Issue]
+    /// Motor outputs on the same timer – they are disabled when this option is used
+    /// (inav cannot run motors and servos on one timer).
+    var disablesMotors: [TimerEntry] = []
 
     var id: String { channel.id }
+    var takesMotors: Bool { !disablesMotors.isEmpty }
     var isAlreadyServo: Bool {
         if case .alreadyServo = kind { return true }
         return false
@@ -73,7 +77,8 @@ struct TimerOption: Identifiable, Hashable {
     var isUsable: Bool { kind != .unusable && !issues.contains { $0.severity == .blocker } }
     var score: Int {
         if kind == .unusable { return 100_000 }
-        return issues.reduce(0) { $0 + $1.severity.rawValue * 10 }
+        // options that keep every motor output are always preferred
+        return issues.reduce(0) { $0 + $1.severity.rawValue * 10 } + (takesMotors ? 100 + 10 * disablesMotors.count : 0)
     }
     var worstSeverity: Severity { issues.map { $0.severity }.max() ?? .info }
 }
@@ -147,6 +152,11 @@ struct TargetAnalysis {
     let softSerialPins: Set<String>
     let padPins: [String: String]       // pin -> "UART2 TX" / "LED strip"
     let ledInDefaultFeatures: Bool
+    let motorOutputs: [TimerEntry]      // motor-capable outputs in inav's order: index 0 = motor 1
+
+    func motorNumber(_ e: TimerEntry) -> Int? {
+        motorOutputs.firstIndex { $0.line == e.line }.map { $0 + 1 }
+    }
 
     var uarts: [PadGroup] { groups.filter { !$0.kind.isLED } }
     var ledGroup: PadGroup? { groups.first { $0.kind.isLED } }
@@ -165,6 +175,20 @@ enum Analyzer {
         let softTimers: Set<String>
         let otherUsers: [String: [String]]
         let adcPins: Set<String>
+        let motorOutputs: [TimerEntry]
+    }
+
+    /// Outputs that can drive a motor (TIM_USE_MOTOR or TIM_USE_OUTPUT_AUTO), in timerHardware order –
+    /// inav assigns motors in this order, so index 0 is motor 1.
+    static func motorOutputs(_ target: TargetInfo) -> [TimerEntry] {
+        target.activeTimers.filter { $0.has("TIM_USE_MOTOR") }
+    }
+
+    static func motorLabel(_ entries: [TimerEntry], in motors: [TimerEntry]) -> String {
+        entries.map { e -> String in
+            let n = motors.firstIndex { $0.line == e.line }.map { "\($0 + 1)" } ?? "?"
+            return "motor \(n) (\(e.pin))"
+        }.joined(separator: ", ")
     }
 
     static func analyze(target: TargetInfo, chip: ChipDatabase) -> TargetAnalysis {
@@ -184,8 +208,9 @@ enum Analyzer {
         let adcPins = Set(target.defines.filter { $0.key.hasPrefix("ADC_CHANNEL_") }
             .flatMap { $0.value.map { $0.value } }.filter { isPinName($0) })
         let rxUart = target.firstValue("SERIALRX_UART")
+        let motors = motorOutputs(target)
         let ctx = Context(target: target, chip: chip, active: active, softPins: softPins, softTimers: softTimers,
-                          otherUsers: others, adcPins: adcPins)
+                          otherUsers: others, adcPins: adcPins, motorOutputs: motors)
 
         var padPins = [String: String]()
         var groups = [PadGroup]()
@@ -250,7 +275,8 @@ enum Analyzer {
         }
 
         return TargetAnalysis(target: target, chip: chip, groups: groups, otherPinUsers: others,
-                              softSerialPins: softPins, padPins: padPins, ledInDefaultFeatures: ledDefault)
+                              softSerialPins: softPins, padPins: padPins, ledInDefaultFeatures: ledDefault,
+                              motorOutputs: motors)
     }
 
     private static func analyzePin(group: PadKind, role: String, pin: String, _ c: Context) -> PinAnalysis {
@@ -278,13 +304,12 @@ enum Analyzer {
             let tc = options[i].channel
             var issues = options[i].issues
             let sameTimer = c.active.filter { $0.timer == tc.timer && $0.pin != pin }
-            let motors = sameTimer.filter { $0.isMotorOnly }
-            let autos = sameTimer.filter { $0.isAuto }
-            if !motors.isEmpty {
-                issues.append(Issue(severity: .blocker, text: "\(tc.timer) drives motor outputs (\(motors.map { $0.pin }.joined(separator: ", "))); motors and servos cannot share a timer."))
-            }
-            if !autos.isEmpty {
-                issues.append(Issue(severity: .warning, text: "\(tc.timer) is shared with outputs \(autos.map { $0.pin }.joined(separator: ", ")) – they will all run as servos (or set timer_output_mode)."))
+            // Motors and servos cannot share a timer: using this channel disables the motor outputs on it.
+            let motorsOnTimer = sameTimer.filter { $0.has("TIM_USE_MOTOR") }
+            if !motorsOnTimer.isEmpty {
+                let left = c.motorOutputs.count - motorsOnTimer.count
+                issues.append(Issue(severity: .warning, text: "Disables \(motorLabel(motorsOnTimer, in: c.motorOutputs)) – \(tc.timer) cannot drive motors and servos at the same time. \(left) of \(c.motorOutputs.count) motor outputs remain."))
+                options[i].disablesMotors = motorsOnTimer
             }
             if sameTimer.contains(where: { $0.has("TIM_USE_LED") }) {
                 issues.append(Issue(severity: .warning, text: "\(tc.timer) also drives the LED strip; with LED_STRIP enabled the timer is unavailable for servos."))
@@ -296,7 +321,7 @@ enum Analyzer {
             if !inputs.isEmpty {
                 issues.append(Issue(severity: .warning, text: "\(tc.timer) has PPM/PWM input entries (\(inputs.map { $0.pin }.joined(separator: ", ")))."))
             }
-            if let clash = sameTimer.first(where: { $0.timerChannel.baseChannel == tc.baseChannel }) {
+            if let clash = sameTimer.first(where: { $0.timerChannel.baseChannel == tc.baseChannel && !$0.has("TIM_USE_MOTOR") }) {
                 issues.append(Issue(severity: .blocker, text: "\(tc.timer) \(tc.baseChannel) is already used on \(clash.pin) (line \(clash.line + 1))."))
             }
             if c.softTimers.contains(tc.timer) {
@@ -334,6 +359,17 @@ enum Analyzer {
     /// Issues that only appear for a combination of selections (two pads on the same timer channel, ...).
     static func crossCheck(selected: [(pin: PinAnalysis, option: TimerOption)], target: TargetInfo) -> [Issue] {
         var issues = [Issue]()
+        let motors = motorOutputs(target)
+        let lost = Set(selected.flatMap { $0.option.disablesMotors.map { $0.line } })
+        if !lost.isEmpty {
+            let usable = motors.enumerated().filter { !lost.contains($0.element.line) }.map { "\($0.offset + 1)" }
+            let gone = motors.enumerated().filter { lost.contains($0.element.line) }.map { "\($0.offset + 1)" }
+            if usable.isEmpty {
+                issues.append(Issue(severity: .blocker, text: "This selection disables every motor output (\(gone.joined(separator: ", "))). Choose other timers or fewer pads."))
+            } else {
+                issues.append(Issue(severity: .warning, text: "Motor outputs disabled: \(gone.joined(separator: ", ")). Still usable: \(usable.joined(separator: ", ")) of \(motors.count)."))
+            }
+        }
         var byChannel = [String: [String]]()
         for s in selected {
             let key = "\(s.option.channel.timer)_\(s.option.channel.baseChannel)"

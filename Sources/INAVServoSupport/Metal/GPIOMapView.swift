@@ -3,7 +3,7 @@ import simd
 
 /// Visual state of one GPIO in the map.
 enum PinVisual: CaseIterable {
-    case free, used, timerOther, output, uartNoTimer, candidate, alreadyServo, selected, selectedWarning
+    case free, used, timerOther, output, uartNoTimer, candidate, alreadyServo, selected, selectedWarning, disabledMotor
 
     var title: String {
         switch self {
@@ -16,6 +16,7 @@ enum PinVisual: CaseIterable {
         case .alreadyServo: return "Pad already servo-capable"
         case .selected: return "Selected for servo"
         case .selectedWarning: return "Selected (check warnings)"
+        case .disabledMotor: return "Motor output disabled"
         }
     }
 
@@ -30,6 +31,7 @@ enum PinVisual: CaseIterable {
         case .alreadyServo: return SIMD4(0.10, 0.75, 0.70, 1.0)
         case .selected: return SIMD4(1.00, 0.62, 0.10, 1.0)
         case .selectedWarning: return SIMD4(1.00, 0.30, 0.25, 1.0)
+        case .disabledMotor: return SIMD4(0.50, 0.10, 0.14, 1.0)
         }
     }
 
@@ -99,6 +101,8 @@ struct GPIOMapView: View {
         if let s = selected {
             return s.option.issues.contains { $0.severity >= .warning } ? .selectedWarning : .selected
         }
+        let disabledMotorPins = Set(state.choices.flatMap { c in c.option.disablesMotors.map { e in e.pin } })
+        if disabledMotorPins.contains(pin) { return .disabledMotor }
         let uartPins = analysis.allPins.filter { $0.pin == pin }
         if let p = uartPins.first {
             if p.isAlreadyServo { return .alreadyServo }
@@ -177,7 +181,7 @@ struct GPIOMapView: View {
     }
 
     private var legend: some View {
-        let items: [PinVisual] = [.candidate, .selected, .selectedWarning, .alreadyServo, .uartNoTimer, .output, .timerOther, .used, .free]
+        let items: [PinVisual] = [.candidate, .selected, .selectedWarning, .alreadyServo, .uartNoTimer, .output, .disabledMotor, .timerOther, .used, .free]
         return LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), alignment: .leading)], alignment: .leading, spacing: 4) {
             ForEach(items, id: \.self) { v in
                 HStack(spacing: 6) {
