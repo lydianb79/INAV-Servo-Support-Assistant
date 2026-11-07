@@ -33,10 +33,18 @@ struct CloneSheet: View {
                 }
                 TextField("Folder name", text: $folderName)
             }
-            destinationInfo
+            if state.jobRunning || state.cloneFailed {
+                cloneProgress
+            }
+            if !state.jobRunning {
+                destinationInfo
+            }
             HStack {
+                if state.jobRunning {
+                    Button("Stop Clone") { state.cancelJob() }
+                }
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(state.jobRunning)
                 Button("Clone") {
                     state.clone(url: url, branch: branch, shallow: shallow, parent: parent, folderName: folderName)
                 }
@@ -45,10 +53,41 @@ struct CloneSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 560)
+        .frame(width: 620)
         .onAppear {
             if let current = state.inavRoot { parent = current.deletingLastPathComponent() }
             folderName = state.uniqueFolderName(in: parent)
+            state.cloneFailed = false
+        }
+    }
+
+    /// git output shown inside the sheet while cloning (a second sheet cannot be presented on top).
+    private var cloneProgress: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                if state.jobRunning {
+                    ProgressView().controlSize(.small)
+                    Text("Cloning into \(destination.path) …").font(.caption)
+                } else {
+                    Label("Clone failed – see the git output below. Fix the problem and press Clone again.",
+                          systemImage: "xmark.octagon.fill")
+                        .font(.caption).foregroundColor(.red)
+                }
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(state.log.isEmpty ? "starting git …" : state.log)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
+                    Color.clear.frame(height: 1).id("end")
+                }
+                .frame(height: 160)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .onChange(of: state.log) { _ in proxy.scrollTo("end", anchor: .bottom) }
+            }
         }
     }
 

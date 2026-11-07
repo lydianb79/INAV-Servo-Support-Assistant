@@ -38,6 +38,7 @@ final class AppState: ObservableObject {
 
     // Sheets / long running jobs
     @Published var showCloneSheet = false
+    @Published var cloneFailed = false
     @Published var showDiffSheet = false
     @Published var showLogSheet = false
     @Published var logTitle = ""
@@ -242,7 +243,8 @@ final class AppState: ObservableObject {
         if shallow { args += ["--depth", "1"] }
         if !branch.trimmingCharacters(in: .whitespaces).isEmpty { args += ["--branch", branch.trimmingCharacters(in: .whitespaces)] }
         args += [url, dest.path]
-        startJob(title: "git clone \(url)")
+        startJob(title: "git clone \(url)", showSheet: false)
+        cloneFailed = false
         log += "$ git " + args.joined(separator: " ") + "\n"
         runner.run(executable: URL(fileURLWithPath: "/usr/bin/git"), arguments: args, in: parent,
                    output: { [weak self] in self?.log += $0 }) { [weak self] status in
@@ -254,7 +256,8 @@ final class AppState: ObservableObject {
                 self.showCloneSheet = false
                 self.showStartSheet = false
             } else {
-                self.log += "\ngit exited with status \(status).\n"
+                self.log += "\ngit exited with status \(status) – the clone did not complete.\n"
+                self.cloneFailed = true
             }
         }
     }
@@ -438,10 +441,12 @@ final class AppState: ObservableObject {
         runner.cancel()
     }
 
-    private func startJob(title: String) {
+    /// `showSheet: false` is used when the job is shown inside an already open sheet (clone):
+    /// macOS cannot present a second sheet on top of it.
+    private func startJob(title: String, showSheet: Bool = true) {
         logTitle = title
         log = ""
         jobRunning = true
-        showLogSheet = true
+        if showSheet { showLogSheet = true }
     }
 }
