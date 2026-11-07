@@ -265,20 +265,24 @@ struct PinRow: View {
                 ForEach(o.issues) { IssueRow(issue: $0).font(.caption) }
             }
             ForEach(pin.notes) { IssueRow(issue: $0) }
-            let rejected = pin.options.filter { !$0.isUsable }
-            if !rejected.isEmpty {
-                DisclosureGroup("\(rejected.count) rejected timer option\(rejected.count == 1 ? "" : "s")") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(rejected) { o in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(o.channel.id).font(.caption.monospaced().weight(.semibold))
-                                ForEach(o.issues.filter { $0.severity == .blocker }) { IssueRow(issue: $0) }
+            // Only real candidates are listed. Rejected timer options are not shown for a candidate pad;
+            // for a pad without any usable timer the reasons are available on demand.
+            if !pin.isCandidate {
+                let rejected = pin.options.filter { !$0.isUsable }
+                if !rejected.isEmpty {
+                    DisclosureGroup("Why this pad cannot be a servo") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(rejected) { o in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(o.channel.id).font(.caption.monospaced().weight(.semibold))
+                                    ForEach(o.issues.filter { $0.severity == .blocker }) { IssueRow(issue: $0) }
+                                }
                             }
                         }
+                        .padding(.leading, 4)
                     }
-                    .padding(.leading, 4)
+                    .font(.caption)
                 }
-                .font(.caption)
             }
         }
     }

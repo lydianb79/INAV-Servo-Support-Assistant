@@ -210,8 +210,10 @@ struct GPIOMapView: View {
             lines.append("\(t.timer) \(t.channel) – \(t.roleDescription)")
         }
         if let users = analysis.otherPinUsers[pin] { lines.append(users.sorted().joined(separator: ", ")) }
-        let caps = analysis.chip.capabilities(of: pin).filter { $0.usable }.map { $0.channel.id }
-        if !caps.isEmpty { lines.append("Timer AF: " + caps.joined(separator: ", ")) }
+        if let pad = analysis.allPins.first(where: { $0.pin == pin }) {
+            let usable = pad.options.filter { $0.isUsable }.map { $0.channel.id }
+            lines.append(usable.isEmpty ? "no usable servo timer" : "Servo timer: " + usable.joined(separator: ", "))
+        }
         if lines.isEmpty { lines.append("not used by this target") }
         return lines
     }

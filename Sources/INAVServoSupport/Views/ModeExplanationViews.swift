@@ -14,7 +14,7 @@ struct HowItWorksBox: View {
                         control("checkmark.square", "Checkbox per pad",
                                 "Pick TX or RX individually. Even one selected pad uses up the UART: inav cannot run the serial port and a servo on its pads at the same time.")
                         control("list.bullet", "Timer menu on the right",
-                                "Which timer channel drives the pad. The best option is preselected; others are listed with their warnings.")
+                                "Which timer channel drives the pad. Only timers that really work are listed – channels shared with motors or already in use are left out. The best one is preselected.")
                         control("rectangle.split.2x1", "Shared / Dedicated",
                                 "How the UART (or LED pad) is converted – see the comparison below.")
                     }
