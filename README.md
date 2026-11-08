@@ -6,7 +6,25 @@ A native macOS app (SwiftUI + Metal) that adds **servo outputs on UART and LED-s
 flight-controller target. It reads the target's `target.h` / `target.c`, checks every UART pin and the
 LED pad against the MCU's timer alternate-function table, shows which pads are possible candidates,
 lets you choose pads and timer channels, checks which of the remaining UARTs can still take a
-receiver, GPS and VTX, and then edits `target.c` / `target.h`.
+receiver, GPS and VTX, and then edits `target.c` / `target.h` (and `config.c` where needed) – in place
+or as a new target copy. It can also test-build the firmware and flash it via DFU without pressing the
+BOOT button.
+
+## Download
+
+Ready-built apps are on the [Releases](https://github.com/lydianb79/INAV-Servo-Support-Assistant/releases) page:
+
+| File | Mac |
+|------|-----|
+| `INAV-Servo-Support-Assistant-1.0.0-macOS-arm64.zip`  | Apple Silicon (M1 and newer) |
+| `INAV-Servo-Support-Assistant-1.0.0-macOS-x86_64.zip` | Intel |
+
+Unzip and move the app to *Applications*. Requires macOS 13 (Ventura) or newer. The app is only ad-hoc
+signed, so on first launch macOS blocks it: right-click the app → *Open* → *Open* (or *System Settings →
+Privacy & Security → Open Anyway*). Alternatively: `xattr -dr com.apple.quarantine "INAV Servo Support Assistant (arm64).app"`.
+
+For *Test Build* you need `cmake` (`brew install cmake`), for flashing `dfu-util` (`brew install dfu-util`).
+See [RELEASE_NOTES.md](RELEASE_NOTES.md) for what's in each version.
 
 ## Build & run
 
@@ -38,19 +56,26 @@ so the separate `metal` compiler from full Xcode is **not** needed.
 2. **Target** – choose a board from `src/main/target/` in the sidebar (filter by name or MCU).
 3. **Analysis** – the app shows
    * a Metal-rendered GPIO map (ports × pins): green = UART pad that can be a servo,
-     blue = existing motor/servo output, purple = UART without usable timer, orange pulse = selected;
-     hover for details, click a green pad to select it,
-   * one card per UART with the timer options for TX and RX, all detected conflicts and the
+     blue = existing motor/servo output, purple = UART without usable timer, orange pulse = selected,
+     greyed = motor output that your selection disables; board pad names (S1, M3, TX6, LED …) are drawn on
+     the pads; hover for details, click a green pad to select it,
+   * *How it works* – a short explanation of the shared / dedicated modes,
+   * the **Motor outputs** strip (motor 1, 2, 3, 4 …) showing which motors stay usable,
+   * one card per UART / LED pad with the timer options for TX and RX, all detected conflicts and the
      rejected options with the reason.
 4. **Select** – tick UART(s), the LED pad or individual pads, pick the timer channel and the mode:
    * **UART shared** – UART stays defined. inav's `checkPwmTimerConflicts()` skips the timer output
      while the UART has a function in the Ports tab, so the pad works as UART *or* servo.
    * **UART dedicated** – the `USE_UARTn` / `UARTn_*` defines are commented out and `SERIAL_PORT_COUNT`
      is reduced. Required for UART1, which inav's runtime check does not cover.
-   * **LED shared** – `TIM_USE_SERVO` is added next to `TIM_USE_LED`: servo while the LED_STRIP
-     feature is off, LED strip output when it is on.
+   * **LED shared** – `TIM_USE_SERVO` is added next to `TIM_USE_LED`: servo while the LED Strip
+     feature is off (configurator: *Configuration → LED Strip*, or CLI `feature -LED_STRIP`), LED strip
+     output when it is on.
    * **LED dedicated** – `TIM_USE_LED` is replaced by `TIM_USE_SERVO`, `USE_LED_STRIP` / `WS2811_*`
      are commented out and `FEATURE_LED_STRIP` is removed from `DEFAULT_FEATURES`.
+
+   If the chosen timer also drives motors, those motor outputs are disabled (see *How candidates are
+   determined*); the Motor outputs strip updates immediately.
 5. **Remaining serial ports** – choose the receiver (CRSF/ELRS or SBUS), GPS and VTX
    (SmartAudio/Tramp or MSP DisplayPort). The table lists every UART and softserial port with its
    state after your selection and ✓ / ⚠ / ✗ per peripheral, and a suggested assignment is computed:
@@ -58,13 +83,19 @@ so the separate `metal` compiler from full Xcode is **not** needed.
    * SBUS needs RX; on STM32F4 only UARTs with an `INVERTER_PIN_UARTn_RX` are ✓ (F7/H7/AT32 invert internally)
    * SmartAudio/Tramp needs a TX pin and also works on softserial
    * softserial that shares pins with a UART cannot be used together with that UART
-6. **Review & Apply** – diff of `target.c` and `target.h`; on apply, backups
-   `target.c.servo-backup` / `target.h.servo-backup` are written once. *Revert to Backup* restores them.
+6. **Review & Apply** – tabs with the diff of `target.c`, `target.h` and `config.c`, a summary of all
+   warnings and the CLI commands. If the button is disabled, the reason is shown next to it (nothing
+   selected, a blocking conflict, an open port-reference decision …). *Apply to* chooses between the
+   original target and a **new target copy** (see *More tools*); *Export .patch…* saves the change set.
+   When applying in place, backups `target.c.servo-backup` / `target.h.servo-backup` (and `config.c`) are
+   written once; *Revert to Backup* restores them.
 7. **Test Build** (optional) – runs `cmake .. && make <TARGET>` in `<inav>/build` (needs `cmake`).
    inav's cmake downloads the ARM compiler into `<inav>/downloads` and `<inav>/tools`; the app links both
    folders to one shared cache (`~/Library/Application Support/INAV Servo Support Assistant/toolchain`), so the
    compiler is downloaded only once, however often the inav folder is re-cloned. *File → Show ARM Toolchain
-   Cache in Finder* opens it.
+   Cache in Finder* opens it. After a successful build the log offers *Reveal .hex* and *Flash via DFU…*.
+8. **After flashing** – paste the generated CLI commands (see below). Most important:
+   `feature PWM_OUTPUT_ENABLE` – no inav target enables it by default and without it servo outputs are not started.
 
 ## Default port settings (config.c / target.h)
 
@@ -112,19 +143,26 @@ servo pads in shared mode, `serial <id> <mask>` for the receiver / GPS / VTX por
 numbering is unchanged:
 
 ```c
-    // Servo outputs on UART pads – added by INAV Servo Support Assistant
+    // Servo outputs on UART / LED pads – added by INAV Servo Support Assistant
     DEF_TIM(TIM9, CH2, PA3,    TIM_USE_SERVO, 0, 0), // UART2 RX pad -> servo (INAV Servo Support Assistant)
 ```
 
 If the pad already has a `DEF_TIM` line (e.g. `TIM_USE_PWM` or a softserial `TIM_USE_ANY`),
 `TIM_USE_SERVO` is added to that line instead of creating a duplicate.
 
+If the chosen timer also drives motor outputs, those motor `DEF_TIM` lines are commented out (tagged
+with the app's name) so the timer is free for servos.
+
 `target.h` – `MAX_PWM_OUTPUT_PORTS` is raised by the number of new outputs; in dedicated mode the UART
-is disabled and `SERIAL_PORT_COUNT` is decreased.
+is disabled and `SERIAL_PORT_COUNT` is decreased; LED dedicated mode comments out the LED-strip defines and
+removes `FEATURE_LED_STRIP` from `DEFAULT_FEATURES`. Default port settings (`SERIALRX_UART` …) are moved or
+removed as chosen.
+
+`config.c` – only if it references a converted UART: the reference is moved to another UART or removed.
 
 After flashing: turn on "Enable motor and servo output" (CLI `feature PWM_OUTPUT_ENABLE`, then `save`) –
-no inav target enables it by default and without it servo outputs are not started. Then assign the servo outputs in the Mixer, and set
-`timer_output_mode` for that timer to `SERVOS` if the timer is shared with auto outputs.
+no inav target enables it by default and without it servo outputs are not started. Then add the servo
+rules in the Mixer tab.
 
 ## How candidates are determined
 
@@ -166,15 +204,26 @@ It is generated by `Tools/make_icon.py` (Python + Pillow): `python3 Tools/make_i
 
 ```
 Package.swift
-build_app.sh
+build_app.sh                      builds / zips the .app (--run, --arch, --universal)
 Sources/INAVServoSupport/
-  App/      INAVServoSupportApp.swift, AppState.swift
-  Engine/   ChipDatabase (datasheet tables), TargetParser, Analyzer, Patcher (+ line diff), PortPlanner, ProcessRunner
+  App/      INAVServoSupportApp.swift (window, menus), AppState.swift (state, apply, build, flash, git)
+  Engine/   ChipDatabase      datasheet AF tables + inav timer/DMA tables
+            TargetParser      target.c / target.h / config.c parser, pad names
+            Analyzer          candidates, conflicts, motor-disable logic
+            Patcher           edits target.c / target.h / config.c (+ line diff)
+            PortPlanner       receiver / GPS / VTX assignment on the remaining ports
+            PortReferences    default port settings in config.c / target.h
+            DMACheck          DMA stream usage
+            TargetCopy        new target copy + unified diff / .patch export
+            ProcessRunner     shell commands (cmake, make, git, dfu-util)
   Metal/    GPIORenderer (MTKView + runtime-compiled shaders), GPIOMapView
-  Views/    ContentView, SidebarView, TargetDetailView, PortPlanSection, SourceViews (start screen, source menu), Sheets
+  Views/    ContentView, SidebarView, SourceViews (start screen, source menu), TargetDetailView,
+            PortPlanSection, ModeExplanationViews (how it works, motor strip, CLI box), Sheets (clone, log, review)
 AppIcon.png
 Tools/servo_engine_reference.py   Python reference of the analysis/patch engine
 Tools/make_icon.py                renders AppIcon.png
+RELEASE_NOTES.md
+LICENSE                           GPL-3.0
 ```
 
 ## License
