@@ -18,7 +18,11 @@ cd INAV-Servo-Support-Assistant
 ./build_app.sh --run          # builds "INAV Servo Support Assistant.app" here and launches it
 ```
 
-Other options: `./build_app.sh --universal` (arm64 + x86_64, needs full Xcode).
+Other options:
+* `./build_app.sh --arch arm64` / `./build_app.sh --arch x86_64` – separate Apple Silicon / Intel builds, named
+  `INAV Servo Support Assistant (arm64).app` / `(x86_64).app`, each also zipped as
+  `INAV-Servo-Support-Assistant-<version>-macOS-<arch>.zip`
+* `./build_app.sh --universal` – one app with both architectures (needs full Xcode)
 You can also open `Package.swift` in Xcode and press ⌘R.
 
 The Metal shaders are compiled at runtime from source (`MTLDevice.makeLibrary(source:)`),

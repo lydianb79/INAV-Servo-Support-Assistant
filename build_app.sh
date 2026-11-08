@@ -2,9 +2,11 @@
 # Builds "INAV Servo Support Assistant.app" from the Swift package in this folder.
 # Requirements: macOS 13+, Xcode or the Xcode Command Line Tools (xcode-select --install).
 #
-#   ./build_app.sh            -> native release build
-#   ./build_app.sh --universal -> arm64 + x86_64 (needs full Xcode)
-#   ./build_app.sh --run       -> build and launch
+#   ./build_app.sh                -> native release build
+#   ./build_app.sh --arch arm64   -> Apple Silicon build:  "INAV Servo Support Assistant (arm64).app" + .zip
+#   ./build_app.sh --arch x86_64  -> Intel build:          "INAV Servo Support Assistant (x86_64).app" + .zip
+#   ./build_app.sh --universal    -> arm64 + x86_64 in one app (needs full Xcode)
+#   ./build_app.sh --run          -> build and launch
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -14,12 +16,20 @@ BUNDLE_ID="local.inav.servo-support-assistant"
 VERSION="1.0.0"
 
 ARCH_FLAGS=()
+ARCH_LABEL=""
 RUN=0
-for a in "$@"; do
-  case "$a" in
-    --universal) ARCH_FLAGS=(--arch arm64 --arch x86_64) ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --universal) ARCH_FLAGS=(--arch arm64 --arch x86_64); ARCH_LABEL="universal" ;;
+    --arch)
+      shift
+      case "${1:-}" in
+        arm64|x86_64) ARCH_FLAGS=(--arch "$1"); ARCH_LABEL="$1" ;;
+        *) echo "error: --arch needs arm64 or x86_64" >&2; exit 1 ;;
+      esac ;;
     --run) RUN=1 ;;
   esac
+  shift
 done
 
 if ! command -v swift >/dev/null 2>&1; then
@@ -31,7 +41,11 @@ echo "==> swift build (release)"
 swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
 BIN_DIR="$(swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)"
 
-APP="$APP_NAME.app"
+if [ -n "$ARCH_LABEL" ]; then
+  APP="$APP_NAME ($ARCH_LABEL).app"
+else
+  APP="$APP_NAME.app"
+fi
 echo "==> assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -79,6 +93,14 @@ codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || echo "warning: codesi
 touch "$APP" "$APP/Contents/Info.plist"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
+
+if [ -n "$ARCH_LABEL" ]; then
+  echo "==> architectures in the binary: $(lipo -archs "$APP/Contents/MacOS/$EXE" 2>/dev/null || echo unknown)"
+  ZIP="INAV-Servo-Support-Assistant-$VERSION-macOS-$ARCH_LABEL.zip"
+  rm -f "$ZIP"
+  ditto -c -k --keepParent "$APP" "$ZIP"
+  echo "==> zipped: $(pwd)/$ZIP"
+fi
 
 echo "==> done: $(pwd)/$APP"
 if [ "$RUN" = "1" ]; then open "$APP"; fi
