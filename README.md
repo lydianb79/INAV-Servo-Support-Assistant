@@ -10,6 +10,10 @@ receiver, GPS and VTX, and then edits `target.c` / `target.h` (and `config.c` wh
 or as a new target copy. It can also test-build the firmware and flash it via DFU without pressing the
 BOOT button.
 
+![Target analysis: Metal GPIO map, servo candidates and motor outputs (MATEKF405)](docs/screenshot-top.jpg)
+
+![Remaining serial ports planner and generated CLI commands (MATEKF405)](docs/screenshot-bottom.jpg)
+
 ## Download
 
 Ready-built apps are on the [Releases](https://github.com/lydianb79/INAV-Servo-Support-Assistant/releases) page:
@@ -220,6 +224,7 @@ Sources/INAVServoSupport/
   Views/    ContentView, SidebarView, SourceViews (start screen, source menu), TargetDetailView,
             PortPlanSection, ModeExplanationViews (how it works, motor strip, CLI box), Sheets (clone, log, review)
 AppIcon.png
+docs/                             README screenshots
 Tools/servo_engine_reference.py   Python reference of the analysis/patch engine
 Tools/make_icon.py                renders AppIcon.png
 RELEASE_NOTES.md
