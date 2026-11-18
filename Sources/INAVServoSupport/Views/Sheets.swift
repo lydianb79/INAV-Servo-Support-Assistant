@@ -9,6 +9,7 @@ struct CloneSheet: View {
     @State private var shallow = true
     @State private var parent: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
     @State private var folderName = "inav"
+    @StateObject private var refs = RemoteRefsModel()
     private var destination: URL {
         parent.appendingPathComponent(folderName.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -25,13 +26,20 @@ struct CloneSheet: View {
             Text("Clone inav").font(.title2.weight(.semibold))
             Form {
                 TextField("Repository URL", text: $url)
-                TextField("Branch / tag", text: $branch)
+                    .onSubmit { refs.load(url: url) }
+                HStack {
+                    TextField("Branch / tag", text: $branch)
+                    branchStatusIcon
+                }
                 Toggle("Shallow clone (--depth 1, much faster)", isOn: $shallow)
                 HStack {
                     TextField("Destination", text: .constant(parent.path)).disabled(true)
                     Button("Choose…") { chooseParent() }
                 }
                 TextField("Folder name", text: $folderName)
+            }
+            if !state.jobRunning {
+                BranchPickerBox(refs: refs, url: url, branch: $branch)
             }
             if state.jobRunning || state.cloneFailed {
                 cloneProgress
@@ -58,6 +66,22 @@ struct CloneSheet: View {
             if let current = state.inavRoot { parent = current.deletingLastPathComponent() }
             folderName = state.uniqueFolderName(in: parent)
             state.cloneFailed = false
+            refs.load(url: url)
+        }
+        .onChange(of: url) { _ in refs.markStale(for: url) }
+    }
+
+    /// ✓ when the typed branch / tag exists on the remote, ⚠ when the list is loaded and it doesn't.
+    @ViewBuilder private var branchStatusIcon: some View {
+        if refs.loadedURL == url, !refs.refs.isEmpty {
+            let name = branch.trimmingCharacters(in: .whitespaces)
+            if refs.refs.contains(where: { $0.name == name }) {
+                Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                    .help("\(name) exists on the remote")
+            } else if !name.isEmpty {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+                    .help("No branch or tag named '\(name)' on the remote – git clone will fail")
+            }
         }
     }
 
@@ -132,6 +156,148 @@ struct CloneSheet: View {
             parent = u
             folderName = state.uniqueFolderName(in: u)
         }
+    }
+}
+
+/// Holds the branches / tags of the clone URL (loaded with `git ls-remote`).
+@MainActor final class RemoteRefsModel: ObservableObject {
+    @Published var refs: [RemoteRef] = []
+    @Published var loading = false
+    @Published var error: String?
+    @Published var loadedURL: String?
+    private var generation = 0
+
+    func load(url: String) {
+        let u = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !u.isEmpty else { return }
+        generation += 1
+        let gen = generation
+        loading = true
+        error = nil
+        RemoteRefs.load(url: u) { [weak self] result in
+            guard let self = self, gen == self.generation else { return }   // a newer request won
+            self.loading = false
+            switch result {
+            case .success(let r):
+                self.refs = r
+                self.loadedURL = url
+            case .failure(let e):
+                self.refs = []
+                self.loadedURL = nil
+                self.error = e.message
+            }
+        }
+    }
+
+    /// The URL was edited: the list no longer belongs to it.
+    func markStale(for url: String) {
+        if loadedURL != url { generation += 1; loading = false; error = nil }
+    }
+}
+
+/// Searchable list of the remote's branches and tags; clicking one puts it into the Branch / tag field.
+struct BranchPickerBox: View {
+    @ObservedObject var refs: RemoteRefsModel
+    let url: String
+    @Binding var branch: String
+    @State private var search = ""
+    @State private var kind: RemoteRef.Kind = .branch
+
+    private var isCurrent: Bool { refs.loadedURL == url }
+    private var filtered: [RemoteRef] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        return refs.refs.filter { $0.kind == kind && (q.isEmpty || $0.name.lowercased().contains(q)) }
+    }
+    private func count(_ k: RemoteRef.Kind) -> Int { refs.refs.filter { $0.kind == k }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                TextField("Search branches and tags", text: $search)
+                    .textFieldStyle(.roundedBorder)
+                Picker("", selection: $kind) {
+                    Text("Branches (\(isCurrent ? count(.branch) : 0))").tag(RemoteRef.Kind.branch)
+                    Text("Tags (\(isCurrent ? count(.tag) : 0))").tag(RemoteRef.Kind.tag)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 230)
+                Button { refs.load(url: url) } label: { Image(systemName: "arrow.clockwise") }
+                    .help("Reload branches and tags from the repository")
+                    .disabled(refs.loading)
+            }
+            listArea
+                .frame(height: 150)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
+        }
+    }
+
+    @ViewBuilder private var listArea: some View {
+        if refs.loading {
+            centered { HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Loading branches and tags …") } }
+        } else if let e = refs.error {
+            centered {
+                VStack(spacing: 6) {
+                    Label("Could not load branches", systemImage: "exclamationmark.triangle.fill").foregroundColor(.orange)
+                    Text(e).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center).lineLimit(3)
+                    Text("You can still type a branch or tag name above.").font(.caption).foregroundColor(.secondary)
+                }.padding(8)
+            }
+        } else if !isCurrent {
+            centered {
+                Button("Load branches for this URL") { refs.load(url: url) }
+            }
+        } else if filtered.isEmpty {
+            centered { Text(search.isEmpty ? "No \(kind == .branch ? "branches" : "tags")" : "No match for '\(search)'").foregroundColor(.secondary) }
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(filtered) { ref in row(ref).id(ref.id) }
+                    }
+                }
+                .onAppear { scrollToSelection(proxy) }
+                .onChange(of: kind) { _ in scrollToSelection(proxy) }
+            }
+        }
+    }
+
+    private func row(_ ref: RemoteRef) -> some View {
+        let selected = ref.name == branch.trimmingCharacters(in: .whitespaces)
+        return Button { branch = ref.name } label: {
+            HStack(spacing: 6) {
+                Image(systemName: ref.kind == .branch ? "arrow.triangle.branch" : "tag")
+                    .foregroundColor(selected ? .white : .secondary)
+                    .frame(width: 16)
+                Text(ref.name).font(.system(.body, design: .monospaced))
+                if ref.name == "master" || ref.name == "main" {
+                    Text("default").font(.caption2).padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(Color.secondary.opacity(selected ? 0.4 : 0.18)))
+                }
+                Spacer()
+                if selected { Image(systemName: "checkmark") }
+            }
+            .foregroundColor(selected ? .white : .primary)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? Color.accentColor : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func scrollToSelection(_ proxy: ScrollViewProxy) {
+        let name = branch.trimmingCharacters(in: .whitespaces)
+        if let r = filtered.first(where: { $0.name == name }) {
+            DispatchQueue.main.async { proxy.scrollTo(r.id, anchor: .center) }
+        }
+    }
+
+    private func centered<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        content().frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -57,6 +57,8 @@ so the separate `metal` compiler from full Xcode is **not** needed.
    **Source** toolbar menu, the **Change** menu in the sidebar header, and the File menu
    (⌘O open, ⇧⌘N clone, ⇧⌘0 start screen). Cloning again proposes a free folder name (`inav-2`, …),
    so an existing checkout is never overwritten.
+   The clone dialog loads all branches and tags of the repository (`git ls-remote`) into a searchable list –
+   release and maintenance branches newest first, releases above their RCs; you can still type any name.
 2. **Target** – choose a board from `src/main/target/` in the sidebar (filter by name or MCU).
 3. **Analysis** – the app shows
    * a Metal-rendered GPIO map (ports × pins): green = UART pad that can be a servo,
