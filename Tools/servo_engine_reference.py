@@ -48,7 +48,17 @@ FAMILIES = {
     'stm32f765xi': ('STM32F765', 'F7', 'TIM', 'timer_def_stm32f7xx.h', 'timer_stm32f7xx.c', F405),
     'stm32h743xi': ('STM32H743', 'H7', 'TIM', 'timer_def_stm32h7xx.h', 'timer_stm32h7xx.c', None),
     'at32f43x':    ('AT32F435/437', 'AT32', 'TMR', 'timer_def_at32f43x.h', 'timer_at32f43x.c', None),
+    'at32f43x_xGT7': ('AT32F435/437 (xGT7)', 'AT32', 'TMR', 'timer_def_at32f43x.h', 'timer_at32f43x.c', None),
+    'at32f43x_xMT7': ('AT32F435/437 (xMT7)', 'AT32', 'TMR', 'timer_def_at32f43x.h', 'timer_at32f43x.c', None),
+    'stm32g473xe': ('STM32G473', 'G4', 'TIM', 'timer_def_stm32g4xx.h', 'timer_stm32g4xx.c', None),
 }
+
+def find_family(fn):
+    if fn in FAMILIES: return fn
+    l = fn.lower()
+    if l.startswith('at32f43'): return 'at32f43x'
+    if l.startswith('stm32g47') or l.startswith('stm32g48'): return 'stm32g473xe'
+    return None
 
 def strip_block_comments(text):
     return re.sub(r'/\*.*?\*/', lambda m: re.sub(r'[^\n]', ' ', m.group(0)), text, flags=re.S)
@@ -128,7 +138,7 @@ class TimerEntry:
 def parse_target(tdir):
     res = {'name': os.path.basename(tdir)}
     cm = open(os.path.join(tdir, 'CMakeLists.txt')).read()
-    res['mcus'] = re.findall(r'target_(\w+)\s*\(\s*(\w+)', cm)
+    res['mcus'] = [(find_family(fn) or fn, name) for fn, name in re.findall(r'target_(\w+)\s*\(\s*(\w+)', cm)]
     h = open(os.path.join(tdir, 'target.h')).read()
     res['h_lines'] = h.split('\n')
     defines = {}

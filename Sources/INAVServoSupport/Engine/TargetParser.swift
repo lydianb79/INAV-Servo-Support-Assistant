@@ -50,7 +50,7 @@ struct TargetSummary: Identifiable, Hashable {
     let mcuFunction: String?
     let variants: [String]
     var id: String { name }
-    var mcu: MCUInfo? { mcuFunction.flatMap { MCUInfo.all[$0] } }
+    var mcu: MCUInfo? { mcuFunction.flatMap { MCUInfo.find($0) } }
     var mcuLabel: String { mcu?.displayName ?? (mcuFunction ?? "unknown") }
     var isSupported: Bool { mcu != nil }
 }
@@ -74,7 +74,7 @@ struct TargetInfo {
     /// Optional config.c (target defaults set in code) – nil when the target has none.
     let configText: String?
 
-    var mcu: MCUInfo? { mcuFunction.flatMap { MCUInfo.all[$0] } }
+    var mcu: MCUInfo? { mcuFunction.flatMap { MCUInfo.find($0) } }
     var activeTimers: [TimerEntry] { timers.filter { $0.active } }
     var hURL: URL { directory.appendingPathComponent("target.h") }
     var cURL: URL { directory.appendingPathComponent("target.c") }

@@ -15,6 +15,8 @@ Requires macOS 13 (Ventura) or newer.
 ## What's new in 1.1.0
 
 - **Branch / tag picker when cloning** – the clone dialog loads all branches and tags of the repository (`git ls-remote`, nothing else is downloaded) into a searchable list with *Branches* / *Tags* tabs. `master` first, then release and maintenance branches newest first; tags newest first with each release above its RCs. A ✓ / ⚠ next to the field shows whether the typed name exists on the remote; any name can still be typed by hand.
+- **AT32F435/437 targets work** – the targets use `target_at32f43x_xGT7` / `target_at32f43x_xMT7`, which the app did not recognise, so all 14 AT32 boards showed as unsupported. Other package variants fall back to the family automatically.
+- **STM32G473 support** (`target_stm32g473xe`) for inav checkouts that contain an STM32G4 port (`drivers/timer_def_stm32g4xx.h`, `timer_stm32g4xx.c`). Timer AF table and DMAMUX handling as on H7; SBUS works on every UART (internal inversion). Checkouts without the port show a clear message.
 - README: download section, updated workflow (motor disabling, config.c, target copy, DFU flashing) and screenshots.
 
 ---
@@ -27,7 +29,7 @@ First release of **INAV Servo Support Assistant** – a native macOS app (SwiftU
 
 **Source & targets**
 - Open an existing inav checkout or clone one from GitHub; recent sources and a start screen
-- Pick any target from `src/main/target` (STM32F405/F411/F427/F722/F745/F765/H743, AT32F435/437)
+- Pick any target from `src/main/target` (STM32F405/F411/F427/F722/F745/F765/H743, AT32F435/437, STM32G473 with a G4 port)
 
 **Servo candidates**
 - UART and LED-strip pads checked against the MCU's timer alternate-function tables (embedded ST datasheet tables for F4, inav's tables for F7/H7/AT32) and against what inav's `DEF_TIM()` can compile

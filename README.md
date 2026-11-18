@@ -178,7 +178,8 @@ rules in the Mixer tab.
 | STM32F411 | embedded table from ST DS10314 (TIM1-5, 9-11 only) |
 | STM32F722 / F745 / F765 | inav `drivers/timer_def_stm32f7xx.h` AF table, cross-checked against the datasheet table |
 | STM32H743 | inav `drivers/timer_def_stm32h7xx.h` AF table |
-| AT32F435/437 | inav `drivers/timer_def_at32f43x.h` MUX table |
+| AT32F435/437 (`at32f43x_xGT7`, `at32f43x_xMT7`) | inav `drivers/timer_def_at32f43x.h` MUX table |
+| STM32G473 | `drivers/timer_def_stm32g4xx.h` AF table – only in inav checkouts that contain an STM32G4 port (upstream inav has none) |
 
 Every option is also validated against what inav can compile: the timer must exist in
 `drivers/timer_<mcu>.c`, and `DEF_TIM_DMA__BTCH_<TIMx_CHy>` (plus the `DEF_TIM_AF__` entry on

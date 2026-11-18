@@ -5,6 +5,7 @@ enum MCUFamily: String {
     case f7 = "STM32F7"
     case h7 = "STM32H7"
     case at32 = "AT32F43x"
+    case g4 = "STM32G4"
 }
 
 /// Static description of every MCU that inav targets can be built for.
@@ -46,8 +47,35 @@ struct MCUInfo {
             nil, "ST DS12110 (STM32H742/743/753) – alternate function mapping")
         add("at32f43x", "AT32F435/437", .at32, "TMR", "timer_def_at32f43x.h", "timer_at32f43x.c",
             nil, "Artery AT32F435/437 datasheet – multiplexed function (MUX) table")
+        // inav targets use the package variants: target_at32f43x_xGT7 (1 MB) / target_at32f43x_xMT7 (4 MB)
+        add("at32f43x_xGT7", "AT32F435/437 (xGT7)", .at32, "TMR", "timer_def_at32f43x.h", "timer_at32f43x.c",
+            nil, "Artery AT32F435/437 datasheet – multiplexed function (MUX) table")
+        add("at32f43x_xMT7", "AT32F435/437 (xMT7)", .at32, "TMR", "timer_def_at32f43x.h", "timer_at32f43x.c",
+            nil, "Artery AT32F435/437 datasheet – multiplexed function (MUX) table")
+        // STM32G4 is not in upstream inav; supported when the source tree has drivers/timer_def_stm32g4xx.h
+        add("stm32g473xe", "STM32G473", .g4, "TIM", "timer_def_stm32g4xx.h", "timer_stm32g4xx.c",
+            nil, "ST DS12288 (STM32G473/474) – Table 13, alternate function mapping")
         return d
     }()
+
+    /// Looks up the MCU of a `target_<fn>(…)` cmake call. Unknown package / memory variants of a
+    /// supported family (e.g. at32f43x_xCT7, stm32g474xe) fall back to the family entry.
+    static func find(_ fn: String) -> MCUInfo? {
+        if let m = all[fn] { return m }
+        let l = fn.lowercased()
+        if let m = all.first(where: { $0.key.lowercased() == l })?.value { return m }
+        func variant(of base: String, name: String) -> MCUInfo? {
+            guard let b = all[base] else { return nil }
+            return MCUInfo(cmakeFunction: fn, displayName: name, family: b.family, timerPrefix: b.timerPrefix,
+                           timerDefHeader: b.timerDefHeader, timerImpl: b.timerImpl, embeddedTable: b.embeddedTable,
+                           datasheet: b.datasheet, excludedTimers: b.excludedTimers)
+        }
+        if l.hasPrefix("at32f43") { return variant(of: "at32f43x", name: "AT32F435/437") }
+        if l.hasPrefix("stm32g47") || l.hasPrefix("stm32g48") {
+            return variant(of: "stm32g473xe", name: fn.uppercased().prefix(9).description)
+        }
+        return nil
+    }
 }
 
 /// Timer channel reference such as TIM5_CH3 or TIM1_CH2N.
@@ -117,7 +145,7 @@ final class ChipDatabase {
     private(set) var embedded: [String: [TimerChannel]] = [:]
     /// DMA options per base timer channel (index = dmavar in DEF_TIM). Empty list = no DMA.
     private(set) var dmaOptions: [String: [DMAStreamRef]] = [:]
-    /// H7 / AT32 route DMA through a DMAMUX: streams are assigned at runtime, no fixed clashes.
+    /// H7 / G4 / AT32 route DMA through a DMAMUX: streams are assigned at runtime, no fixed clashes.
     var hasFixedDMA: Bool { mcu.family == .f4 || mcu.family == .f7 }
 
     var sourceDescription: String {
@@ -126,7 +154,7 @@ final class ChipDatabase {
             return "Embedded datasheet table (\(mcu.datasheet)); validated against inav drivers/\(mcu.timerDefHeader)"
         case .f7:
             return "inav drivers/\(mcu.timerDefHeader) AF table, cross-checked with embedded datasheet table (\(mcu.datasheet))"
-        case .h7, .at32:
+        case .h7, .at32, .g4:
             return "inav drivers/\(mcu.timerDefHeader) AF table (derived from \(mcu.datasheet))"
         }
     }
@@ -137,6 +165,10 @@ final class ChipDatabase {
         func read(_ name: String) throws -> String {
             let url = drivers.appendingPathComponent(name)
             guard let s = try? String(contentsOf: url, encoding: .utf8) else {
+                if mcu.family == .g4 {
+                    throw ChipDatabaseError.missingFile("src/main/drivers/\(name) – this inav source has no STM32G4 support. "
+                        + "Upstream inav does not support the G4; open a checkout that contains the G4 port.")
+                }
                 throw ChipDatabaseError.missingFile("src/main/drivers/\(name)")
             }
             return s
@@ -191,7 +223,7 @@ final class ChipDatabase {
                     out.append(PinTimerCapability(channel: tc, usable: true, detail: "AF \(Datasheets.f4AF(for: tc.timer))", source: "datasheet"))
                 }
             }
-        case .f7, .h7, .at32:
+        case .f7, .h7, .at32, .g4:
             var seen = Set<String>()
             for (key, af) in (inavAF[pin] ?? [:]).sorted(by: { $0.key < $1.key }) {
                 guard let tc = TimerChannel(key) else { continue }
