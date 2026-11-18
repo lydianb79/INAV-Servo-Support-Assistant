@@ -47,6 +47,11 @@ Other options:
 * `./build_app.sh --universal` – one app with both architectures (needs full Xcode)
 You can also open `Package.swift` in Xcode and press ⌘R.
 
+**Publishing a release** – `./release.sh` builds the arm64 and x86_64 zips, creates the tag `v<VERSION>`
+(version from `build_app.sh`) and a GitHub release with the newest section of `RELEASE_NOTES.md` as notes.
+It needs the GitHub CLI (`brew install gh`, installed automatically when Homebrew is present) and asks you to
+sign in once. `--draft` creates a draft, `--skip-build` reuses existing zips; re-running replaces the zips.
+
 The Metal shaders are compiled at runtime from source (`MTLDevice.makeLibrary(source:)`),
 so the separate `metal` compiler from full Xcode is **not** needed.
 
