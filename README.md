@@ -20,8 +20,8 @@ Ready-built apps are on the [Releases](https://github.com/lydianb79/INAV-Servo-S
 
 | File | Mac |
 |------|-----|
-| `INAV-Servo-Support-Assistant-1.0.0-macOS-arm64.zip`  | Apple Silicon (M1 and newer) |
-| `INAV-Servo-Support-Assistant-1.0.0-macOS-x86_64.zip` | Intel |
+| `INAV-Servo-Support-Assistant-1.1.0-macOS-arm64.zip`  | Apple Silicon (M1 and newer) |
+| `INAV-Servo-Support-Assistant-1.1.0-macOS-x86_64.zip` | Intel |
 
 Unzip and move the app to *Applications*. Requires macOS 13 (Ventura) or newer. The app is only ad-hoc
 signed, so on first launch macOS blocks it: right-click the app → *Open* → *Open* (or *System Settings →

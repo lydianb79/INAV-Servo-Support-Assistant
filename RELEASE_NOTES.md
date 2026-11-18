@@ -1,18 +1,27 @@
-# INAV Servo Support Assistant 1.0.0
-
-First release of **INAV Servo Support Assistant** – a native macOS app (SwiftUI + Metal) that adds servo outputs on the UART and LED-strip pads of inav flight-controller targets.
+# INAV Servo Support Assistant 1.1.0
 
 ## Downloads
 
 | Mac | File |
 |---|---|
-| Apple Silicon (M1/M2/M3/M4) | `INAV-Servo-Support-Assistant-1.0.0-macOS-arm64.zip` |
-| Intel | `INAV-Servo-Support-Assistant-1.0.0-macOS-x86_64.zip` |
+| Apple Silicon (M1/M2/M3/M4) | `INAV-Servo-Support-Assistant-1.1.0-macOS-arm64.zip` |
+| Intel | `INAV-Servo-Support-Assistant-1.1.0-macOS-x86_64.zip` |
 
 Requires macOS 13 (Ventura) or newer.
 
 > **First launch:** the app is ad-hoc signed, not notarized, so macOS may block it. Right-click the app → **Open**, or run
 > `xattr -dr com.apple.quarantine "INAV Servo Support Assistant (arm64).app"` (use the x86_64 name for the Intel build).
+
+## What's new in 1.1.0
+
+- **Branch / tag picker when cloning** – the clone dialog loads all branches and tags of the repository (`git ls-remote`, nothing else is downloaded) into a searchable list with *Branches* / *Tags* tabs. `master` first, then release and maintenance branches newest first; tags newest first with each release above its RCs. A ✓ / ⚠ next to the field shows whether the typed name exists on the remote; any name can still be typed by hand.
+- README: download section, updated workflow (motor disabling, config.c, target copy, DFU flashing) and screenshots.
+
+---
+
+# INAV Servo Support Assistant 1.0.0
+
+First release of **INAV Servo Support Assistant** – a native macOS app (SwiftUI + Metal) that adds servo outputs on the UART and LED-strip pads of inav flight-controller targets.
 
 ## Features
 

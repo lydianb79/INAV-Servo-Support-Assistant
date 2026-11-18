@@ -13,7 +13,7 @@ cd "$(dirname "$0")"
 APP_NAME="INAV Servo Support Assistant"
 EXE="INAVServoSupport"
 BUNDLE_ID="local.inav.servo-support-assistant"
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 ARCH_FLAGS=()
 ARCH_LABEL=""
