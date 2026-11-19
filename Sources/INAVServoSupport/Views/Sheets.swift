@@ -388,6 +388,10 @@ struct DiffSheet: View {
                         } else {
                             Text("build with: make \(state.copyName)").font(.caption.monospaced()).foregroundColor(.secondary)
                         }
+                    } else {
+                        Toggle("Back up target folder first", isOn: $state.backupBeforeApply)
+                            .toggleStyle(.checkbox)
+                            .help("Copies src/main/target/\(plan.target.name) to <inav>/.servo-backups/\(plan.target.name)/<date-time> before writing. Restore it via More → Restore target backup.")
                     }
                     Spacer()
                 }
@@ -401,7 +405,11 @@ struct DiffSheet: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 ForEach(plan.changes, id: \.self) { c in Label(c, systemImage: "pencil").font(.callout) }
                                 ForEach(plan.warnings) { w in IssueRow(issue: w) }
-                                Text("Backups are written next to the originals as target.c / target.h / config.c .servo-backup (only if none exist yet).")
+                                Text(state.applyAsCopy
+                                     ? "The original target is not modified."
+                                     : (state.backupBeforeApply
+                                        ? "Before writing, the whole target folder is copied to .servo-backups/\(plan.target.name)/<date-time> (restore via More → Restore target backup). target.c / target.h / config.c .servo-backup files are also kept for Revert to Backup."
+                                        : "target.c / target.h / config.c .servo-backup files are written next to the originals (only if none exist yet) for Revert to Backup."))
                                     .font(.caption).foregroundColor(.secondary).padding(.top, 8)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading).padding(10)

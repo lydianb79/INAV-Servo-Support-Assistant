@@ -25,6 +25,10 @@ final class AppState: ObservableObject {
     @Published var portRefs: [PortReference] = []
     // Apply target: modify in place or create a copy as new target
     @Published var applyAsCopy = false
+    /// Copy the whole target folder to <inav>/.servo-backups before applying in place (remembered).
+    @Published var backupBeforeApply: Bool = UserDefaults.standard.object(forKey: "backupBeforeApply") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(backupBeforeApply, forKey: "backupBeforeApply") }
+    }
     @Published var copyName = ""
     // Last successful build output
     @Published var lastHex: URL?
@@ -534,6 +538,8 @@ final class AppState: ObservableObject {
         let t = plan.target
         let fm = FileManager.default
         do {
+            var folderBackup: URL?
+            if backupBeforeApply { folderBackup = try createTargetBackup(name: t.name) }
             var files = [t.cURL, t.hURL]
             if plan.configChanged { files.append(t.configURL) }
             for url in files {
@@ -543,7 +549,9 @@ final class AppState: ObservableObject {
             if plan.cChanged { try plan.newC.write(to: t.cURL, atomically: true, encoding: .utf8) }
             if plan.hChanged { try plan.newH.write(to: t.hURL, atomically: true, encoding: .utf8) }
             if plan.configChanged, let cfg = plan.newConfig { try cfg.write(to: t.configURL, atomically: true, encoding: .utf8) }
-            statusMessage = "Applied \(choices.count) servo pad(s) to \(t.name). Backups: target.c.servo-backup / target.h.servo-backup"
+            var msg = "Applied \(choices.count) servo pad(s) to \(t.name)."
+            if let b = folderBackup { msg += " Target backup: .servo-backups/\(t.name)/\(b.lastPathComponent)" }
+            statusMessage = msg
             showDiffSheet = false
             loadSelectedTarget()
         } catch {
@@ -833,6 +841,112 @@ final class AppState: ObservableObject {
         } catch {
             alertMessage = "Revert failed: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Target folder backups (<inav>/.servo-backups/<TARGET>/<yyyy-MM-dd_HH-mm-ss>)
+    // Kept outside src/main/target: a copy in there would be picked up by CMake as a duplicate target.
+
+    var backupsRoot: URL? { inavRoot?.appendingPathComponent(".servo-backups") }
+
+    private static let backupStampFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        return f
+    }()
+
+    /// Copies the complete target folder (incl. CMakeLists.txt, config.c …) into a new dated backup folder.
+    @discardableResult
+    func createTargetBackup(name: String) throws -> URL {
+        guard let root = inavRoot, let backups = backupsRoot else { throw CocoaError(.fileNoSuchFile) }
+        let fm = FileManager.default
+        let src = TargetParser.targetsDirectory(root).appendingPathComponent(name)
+        let dir = backups.appendingPathComponent(name)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        // keep the backups out of `git status` of the inav checkout
+        let ignore = backups.appendingPathComponent(".gitignore")
+        if !fm.fileExists(atPath: ignore.path) { try "*\n".write(to: ignore, atomically: true, encoding: .utf8) }
+        var dest = dir.appendingPathComponent(Self.backupStampFormat.string(from: Date()))
+        var n = 2
+        while fm.fileExists(atPath: dest.path) {
+            dest = dir.appendingPathComponent(Self.backupStampFormat.string(from: Date()) + "-\(n)"); n += 1
+        }
+        try fm.copyItem(at: src, to: dest)
+        return dest
+    }
+
+    /// Backups of the selected target, newest first.
+    var targetBackups: [URL] {
+        guard let name = selectedTargetName, let backups = backupsRoot else { return [] }
+        let dir = backups.appendingPathComponent(name)
+        let items = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil,
+                                                                   options: [.skipsHiddenFiles])) ?? []
+        return items.filter { $0.hasDirectoryPath }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+
+    func backupTitle(_ url: URL) -> String {
+        guard let d = Self.backupStampFormat.date(from: String(url.lastPathComponent.prefix(19))) else { return url.lastPathComponent }
+        return DateFormatter.localizedString(from: d, dateStyle: .medium, timeStyle: .medium)
+    }
+
+    func backupTargetNow() {
+        guard let name = selectedTargetName else { return }
+        do {
+            let b = try createTargetBackup(name: name)
+            statusMessage = "Backup of \(name) saved: .servo-backups/\(name)/\(b.lastPathComponent)"
+            objectWillChange.send()
+        } catch {
+            alertMessage = "Backup failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Replaces the target folder with the backup (after confirmation). The current state is backed up first.
+    func restoreTargetBackup(_ backup: URL) {
+        guard let root = inavRoot, let name = selectedTargetName else { return }
+        let alert = NSAlert()
+        alert.messageText = "Restore \(name) from the backup of \(backupTitle(backup))?"
+        alert.informativeText = "All files in src/main/target/\(name) are replaced by the backup. The current state is backed up first, so this can be undone."
+        alert.addButton(withTitle: "Restore")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let fm = FileManager.default
+        let target = TargetParser.targetsDirectory(root).appendingPathComponent(name)
+        do {
+            try createTargetBackup(name: name)
+            let tmp = target.deletingLastPathComponent().appendingPathComponent(".\(name).restoring")
+            if fm.fileExists(atPath: tmp.path) { try fm.removeItem(at: tmp) }
+            try fm.copyItem(at: backup, to: tmp)
+            _ = try fm.replaceItemAt(target, withItemAt: tmp)
+            statusMessage = "\(name) restored from the backup of \(backupTitle(backup)) (previous state backed up)."
+            loadSelectedTarget()
+        } catch {
+            alertMessage = "Restore failed: \(error.localizedDescription)"
+        }
+    }
+
+    func revealBackups() {
+        guard let backups = backupsRoot else { return }
+        let dir = selectedTargetName.map { backups.appendingPathComponent($0) } ?? backups
+        if FileManager.default.fileExists(atPath: dir.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([dir])
+        } else {
+            statusMessage = "No backups yet."
+        }
+    }
+
+    /// Sidebar refresh button: re-reads src/main/target and keeps the current target and pad selection.
+    func refreshTargetsManually() {
+        guard let root = inavRoot else { return }
+        let before = Set(targets.map { $0.name })
+        let fresh = TargetParser.listTargets(root: root)
+        targets = fresh
+        let now = Set(fresh.map { $0.name })
+        let added = now.subtracting(before).sorted(), removed = before.subtracting(now).sorted()
+        var msg = "\(fresh.count) targets"
+        if !added.isEmpty { msg += " · new: " + added.joined(separator: ", ") }
+        if !removed.isEmpty { msg += " · removed: " + removed.joined(separator: ", ") }
+        statusMessage = msg
+        if let sel = selectedTargetName, !now.contains(sel) { selectedTargetName = nil }
     }
 
     func revealTarget() {

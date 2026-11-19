@@ -1,16 +1,26 @@
-# INAV Servo Support Assistant 1.1.0
+# INAV Servo Support Assistant 1.2.0
 
 ## Downloads
 
 | Mac | File |
 |---|---|
-| Apple Silicon (M1/M2/M3/M4) | `INAV-Servo-Support-Assistant-1.1.0-macOS-arm64.zip` |
-| Intel | `INAV-Servo-Support-Assistant-1.1.0-macOS-x86_64.zip` |
+| Apple Silicon (M1/M2/M3/M4) | `INAV-Servo-Support-Assistant-1.2.0-macOS-arm64.zip` |
+| Intel | `INAV-Servo-Support-Assistant-1.2.0-macOS-x86_64.zip` |
 
 Requires macOS 13 (Ventura) or newer.
 
 > **First launch:** the app is ad-hoc signed, not notarized, so macOS may block it. Right-click the app → **Open**, or run
 > `xattr -dr com.apple.quarantine "INAV Servo Support Assistant (arm64).app"` (use the x86_64 name for the Intel build).
+
+## What's new in 1.2.0
+
+- **Workflow order in the action bar** – *Review & Apply…* now comes first, followed by *Test Build* (Review & Apply → Test Build). The Test Build tooltip says that it builds the files on disk, i.e. including the servo changes once they are applied.
+- **Target folder backups** – *Back up target folder first* in the Review & Apply sheet (on by default, remembered) copies the complete target folder to `<inav>/.servo-backups/<TARGET>/<date-time>` before the changes are written. *More → Back up target now*, *Restore target backup* (list by date; the current state is backed up before restoring) and *Show backups in Finder*. Backups live outside `src/main/target`, so CMake does not see them as duplicate targets, and are ignored by git.
+- **Refresh button** above the target list – re-reads `src/main/target` (new, renamed or deleted target folders) and keeps the current target and pad selection.
+
+---
+
+# INAV Servo Support Assistant 1.1.0
 
 ## What's new in 1.1.0
 

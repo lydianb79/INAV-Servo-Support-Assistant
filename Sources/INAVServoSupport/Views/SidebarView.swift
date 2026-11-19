@@ -18,8 +18,17 @@ struct SidebarView: View {
                     if !state.gitDescription.isEmpty {
                         Text(state.gitDescription).font(.caption2).foregroundColor(.secondary).lineLimit(2)
                     }
-                    Toggle("Show unsupported MCUs", isOn: $state.showUnsupported)
-                        .font(.caption).toggleStyle(.checkbox).padding(.top, 4)
+                    HStack {
+                        Toggle("Show unsupported MCUs", isOn: $state.showUnsupported)
+                            .font(.caption).toggleStyle(.checkbox)
+                        Spacer()
+                        Button { state.refreshTargetsManually() } label: {
+                            Label("Refresh", systemImage: "arrow.clockwise")
+                        }
+                        .controlSize(.small)
+                        .help("Re-read src/main/target (new, renamed or deleted target folders). Keeps the current target and pad selection.")
+                    }
+                    .padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)

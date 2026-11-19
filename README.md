@@ -20,8 +20,8 @@ Ready-built apps are on the [Releases](https://github.com/lydianb79/INAV-Servo-S
 
 | File | Mac |
 |------|-----|
-| `INAV-Servo-Support-Assistant-1.1.0-macOS-arm64.zip`  | Apple Silicon (M1 and newer) |
-| `INAV-Servo-Support-Assistant-1.1.0-macOS-x86_64.zip` | Intel |
+| `INAV-Servo-Support-Assistant-1.2.0-macOS-arm64.zip`  | Apple Silicon (M1 and newer) |
+| `INAV-Servo-Support-Assistant-1.2.0-macOS-x86_64.zip` | Intel |
 
 Unzip and move the app to *Applications*. Requires macOS 13 (Ventura) or newer. The app is only ad-hoc
 signed, so on first launch macOS blocks it: right-click the app → *Open* → *Open* (or *System Settings →
@@ -64,7 +64,7 @@ so the separate `metal` compiler from full Xcode is **not** needed.
    so an existing checkout is never overwritten.
    The clone dialog loads all branches and tags of the repository (`git ls-remote`) into a searchable list –
    release and maintenance branches newest first, releases above their RCs; you can still type any name.
-2. **Target** – choose a board from `src/main/target/` in the sidebar (filter by name or MCU).
+2. **Target** – choose a board from `src/main/target/` in the sidebar (filter by name or MCU; the *Refresh* button above the list picks up new, renamed or deleted target folders).
 3. **Analysis** – the app shows
    * a Metal-rendered GPIO map (ports × pins): green = UART pad that can be a servo,
      blue = existing motor/servo output, purple = UART without usable timer, orange pulse = selected,
@@ -98,9 +98,13 @@ so the separate `metal` compiler from full Xcode is **not** needed.
    warnings and the CLI commands. If the button is disabled, the reason is shown next to it (nothing
    selected, a blocking conflict, an open port-reference decision …). *Apply to* chooses between the
    original target and a **new target copy** (see *More tools*); *Export .patch…* saves the change set.
-   When applying in place, backups `target.c.servo-backup` / `target.h.servo-backup` (and `config.c`) are
-   written once; *Revert to Backup* restores them.
-7. **Test Build** (optional) – runs `cmake .. && make <TARGET>` in `<inav>/build` (needs `cmake`).
+   With *Back up target folder first* (on by default) the complete target folder is copied to
+   `<inav>/.servo-backups/<TARGET>/<date-time>` before anything is written – restore it via
+   *More → Restore target backup*. In addition `target.c.servo-backup` / `target.h.servo-backup` (and `config.c`)
+   are written once next to the originals; *Revert to Backup* restores them.
+7. **Test Build** (optional, right of Review & Apply) – builds the target as it is on disk, so after applying it
+   contains the servo changes; after *Apply to → New target copy* the copy is selected and built.
+   Runs `cmake .. && make <TARGET>` in `<inav>/build` (needs `cmake`).
    inav's cmake downloads the ARM compiler into `<inav>/downloads` and `<inav>/tools`; the app links both
    folders to one shared cache (`~/Library/Application Support/INAV Servo Support Assistant/toolchain`), so the
    compiler is downloaded only once, however often the inav folder is re-cloned. *File → Show ARM Toolchain

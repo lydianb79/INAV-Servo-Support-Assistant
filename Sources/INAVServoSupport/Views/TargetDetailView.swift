@@ -179,6 +179,19 @@ struct TargetDetailView: View {
                 Button { state.importPatch() } label: { Label("Apply a .patch…", systemImage: "square.and.arrow.down") }
                 Button { state.promptCommitBranch() } label: { Label("Commit target to git branch…", systemImage: "arrow.triangle.branch") }
                 Divider()
+                Button { state.backupTargetNow() } label: { Label("Back up target now", systemImage: "externaldrive.badge.plus") }
+                Menu {
+                    let backups = state.targetBackups
+                    if backups.isEmpty {
+                        Text("No backups yet")
+                    } else {
+                        ForEach(backups, id: \.self) { b in
+                            Button(state.backupTitle(b)) { state.restoreTargetBackup(b) }
+                        }
+                    }
+                } label: { Label("Restore target backup", systemImage: "clock.arrow.circlepath") }
+                Button { state.revealBackups() } label: { Label("Show backups in Finder", systemImage: "folder") }
+                Divider()
                 Button { state.revealHex() } label: { Label("Reveal last .hex", systemImage: "doc.badge.gearshape") }
                     .disabled(state.lastHex == nil)
                 Button { state.confirmFlash() } label: { Label("Flash last build via DFU…", systemImage: "bolt.horizontal.circle") }
@@ -189,9 +202,6 @@ struct TargetDetailView: View {
                 Label("More", systemImage: "ellipsis.circle")
             }
             .fixedSize()
-            Button { state.testBuild() } label: { Label("Test Build", systemImage: "hammer") }
-                .help("Runs cmake + make for this target in <inav>/build (requires cmake). The ARM compiler is downloaded once into a shared cache and reused for every inav checkout.")
-                .disabled(state.jobRunning)
             if let reason = reviewBlockReason {
                 Label(reason, systemImage: count == 0 ? "info.circle" : "xmark.octagon.fill")
                     .font(.caption)
@@ -204,6 +214,12 @@ struct TargetDetailView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(reviewBlockReason != nil)
                 .help(reviewBlockReason ?? "Show the changes to target.c / target.h / config.c before writing them")
+            Image(systemName: "chevron.right")
+                .foregroundColor(.secondary)
+                .accessibilityHidden(true)
+            Button { state.testBuild() } label: { Label("Test Build", systemImage: "hammer") }
+                .help("Builds the files as they are on disk – after Review & Apply that includes the servo changes. Runs cmake + make for \(state.selectedTargetName ?? "this target") in <inav>/build (requires cmake). The ARM compiler is downloaded once into a shared cache and reused for every inav checkout.")
+                .disabled(state.jobRunning)
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .background(.bar)
